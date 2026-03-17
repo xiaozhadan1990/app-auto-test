@@ -14,11 +14,17 @@ import urllib.parse
 import urllib.request
 import webbrowser
 import json
+import platform
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
+
+try:
+    import websocket as websocket_client
+except Exception:  # pragma: no cover
+    websocket_client = None
 
 
 if getattr(sys, "frozen", False):
@@ -42,6 +48,24 @@ TASK_REPORT_DIR = REPORTS_ROOT / "task-reports"
 ADB_BIN = "adb"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 17999
+
+
+def _load_local_env_file() -> None:
+    env_path = RUNTIME_ROOT / ".env"
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
+
+
+_load_local_env_file()
 
 APP_CONFIG: dict[str, dict[str, str]] = {
     "lysora": {
@@ -446,6 +470,250 @@ def _env_bool(name: str, default: bool) -> bool:
     if not raw:
         return default
     return raw in {"1", "true", "yes", "on"}
+
+
+_remote_ws_lock = threading.Lock()
+_remote_ws_send_lock = threading.Lock()
+_remote_ws_stop_event = threading.Event()
+_remote_ws_thread: threading.Thread | None = None
+_remote_ws_app: Any = None
+_remote_ws_status_state: dict[str, Any] = {
+    "enabled": False,
+    "url": "",
+    "connected": False,
+    "client_id": "",
+    "last_error": "",
+    "last_connect_ts": 0,
+    "last_message_ts": 0,
+    "last_heartbeat_ts": 0,
+}
+
+
+def _remote_ws_enabled() -> bool:
+    raw = (os.getenv("REMOTE_WS_ENABLED") or "").strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return bool((os.getenv("REMOTE_WS_URL") or "").strip())
+
+
+def _remote_ws_client_id() -> str:
+    raw = (os.getenv("REMOTE_WS_CLIENT_ID") or "").strip()
+    if raw:
+        return raw
+    host = platform.node().strip() or socket.gethostname().strip() or "desktop-client"
+    return f"{host}-{os.getpid()}"
+
+
+def _remote_ws_set_status(**kwargs: Any) -> None:
+    with _remote_ws_lock:
+        _remote_ws_status_state.update(kwargs)
+
+
+def _remote_ws_status() -> dict[str, Any]:
+    with _remote_ws_lock:
+        return dict(_remote_ws_status_state)
+
+
+def _remote_ws_send_json(payload: dict[str, Any]) -> bool:
+    global _remote_ws_app
+    app = _remote_ws_app
+    if app is None:
+        return False
+    try:
+        with _remote_ws_send_lock:
+            app.send(json.dumps(payload, ensure_ascii=False))
+        return True
+    except Exception as exc:
+        _remote_ws_set_status(last_error=str(exc), connected=False)
+        return False
+
+
+def _remote_ws_heartbeat_payload() -> dict[str, Any]:
+    with _tasks_lock:
+        running_task_ids = list(_device_running_task.values())
+    bind_host = (os.getenv("DESKTOP_WEB_HOST") or DEFAULT_HOST).strip() or DEFAULT_HOST
+    bind_port = _env_int("DESKTOP_WEB_PORT", DEFAULT_PORT)
+    desktop_base_url = (os.getenv("REMOTE_WS_PUBLIC_BASE_URL") or "").strip() or f"http://{bind_host}:{bind_port}"
+    return {
+        "type": "heartbeat",
+        "client_id": _remote_ws_client_id(),
+        "data": {
+            "status": "running" if running_task_ids else "idle",
+            "running_task_count": len(running_task_ids),
+            "running_task_ids": running_task_ids,
+            "desktop_base_url": desktop_base_url,
+            "ts": int(time.time()),
+        },
+    }
+
+
+def _remote_ws_exec_command(action: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if action == "list_devices":
+        return _list_devices()
+    if action == "list_test_packages":
+        return {"ok": True, "packages": _list_test_packages(str(payload.get("app_key") or "lysora"))}
+    if action == "run_tests":
+        return _run_tests(payload)
+    if action == "stop_task":
+        return _stop_task(payload)
+    if action == "task_status":
+        task_id = str(payload.get("task_id") or "").strip()
+        if not task_id:
+            return {"ok": False, "error": "task_id 不能为空"}
+        return _task_status(task_id)
+    if action == "task_report_data":
+        task_id = str(payload.get("task_id") or "").strip()
+        if not task_id:
+            return {"ok": False, "error": "task_id 不能为空"}
+        data = _get_task_report_data(task_id)
+        if not data:
+            return {"ok": False, "error": f"任务报告数据不存在: {task_id}"}
+        return {"ok": True, "task_id": task_id, **data}
+    if action == "task_history":
+        limit_raw = payload.get("limit", 20)
+        try:
+            limit = max(1, min(int(limit_raw), 200))
+        except Exception:
+            limit = 20
+        device = str(payload.get("device") or "").strip() or None
+        status = str(payload.get("status") or "").strip().lower() or None
+        if status and status not in {"running", "success", "failed", "stopped"}:
+            status = None
+        return {"ok": True, "tasks": _get_task_history(limit=limit, device=device, status=status)}
+    if action == "device_status":
+        device = str(payload.get("device_serial") or "").strip()
+        if not device:
+            return {"ok": False, "error": "device_serial 不能为空"}
+        return {"ok": True, "device_status": _get_device_status(device)}
+    if action == "startup_info":
+        return _startup_info()
+    if action == "appium_ready":
+        return _appium_ready()
+    return {"ok": False, "error": f"unsupported action: {action}"}
+
+
+def _remote_ws_handle_message(raw: str) -> None:
+    _remote_ws_set_status(last_message_ts=int(time.time()))
+    try:
+        msg = json.loads(raw)
+    except Exception:
+        return
+    msg_type = str(msg.get("type") or "").strip().lower()
+    if msg_type == "command":
+        action = str(msg.get("action") or "").strip()
+        request_id = str(msg.get("request_id") or "").strip()
+        payload = msg.get("payload")
+        if not isinstance(payload, dict):
+            payload = {}
+        try:
+            result = _remote_ws_exec_command(action, payload)
+            ok = bool(result.get("ok", True)) if isinstance(result, dict) else True
+            resp = {
+                "type": "response",
+                "client_id": _remote_ws_client_id(),
+                "request_id": request_id,
+                "action": action,
+                "data": result,
+                "ok": ok,
+            }
+        except Exception as exc:
+            resp = {
+                "type": "response",
+                "client_id": _remote_ws_client_id(),
+                "request_id": request_id,
+                "action": action,
+                "ok": False,
+                "error": str(exc),
+            }
+        _remote_ws_send_json(resp)
+    elif msg_type in {"register_ack", "heartbeat_ack"}:
+        _remote_ws_set_status(last_heartbeat_ts=int(time.time()))
+
+
+def _remote_ws_heartbeat_loop(app: Any, interval_sec: int) -> None:
+    while not _remote_ws_stop_event.is_set():
+        if _remote_ws_app is not app:
+            return
+        _remote_ws_send_json(_remote_ws_heartbeat_payload())
+        _remote_ws_set_status(last_heartbeat_ts=int(time.time()))
+        _remote_ws_stop_event.wait(max(1, interval_sec))
+
+
+def _remote_ws_runner() -> None:
+    global _remote_ws_app
+    if websocket_client is None:
+        _remote_ws_set_status(last_error="websocket-client 未安装", enabled=False)
+        return
+    ws_url = (os.getenv("REMOTE_WS_URL") or "").strip()
+    if not ws_url:
+        _remote_ws_set_status(enabled=False, url="", connected=False)
+        return
+    _remote_ws_set_status(enabled=True, url=ws_url, client_id=_remote_ws_client_id())
+    heartbeat_sec = max(5, _env_int("REMOTE_WS_HEARTBEAT_SEC", 15))
+    reconnect_sec = max(2, _env_int("REMOTE_WS_RECONNECT_SEC", 5))
+    ping_interval = max(10, _env_int("REMOTE_WS_PING_INTERVAL_SEC", 20))
+    ping_timeout = max(5, _env_int("REMOTE_WS_PING_TIMEOUT_SEC", 10))
+
+    while not _remote_ws_stop_event.is_set():
+        def _on_open(app: Any) -> None:
+            _remote_ws_set_status(connected=True, last_connect_ts=int(time.time()), last_error="")
+            bind_host = (os.getenv("DESKTOP_WEB_HOST") or DEFAULT_HOST).strip() or DEFAULT_HOST
+            bind_port = _env_int("DESKTOP_WEB_PORT", DEFAULT_PORT)
+            desktop_base_url = (os.getenv("REMOTE_WS_PUBLIC_BASE_URL") or "").strip() or f"http://{bind_host}:{bind_port}"
+            _remote_ws_send_json(
+                {
+                    "type": "register",
+                    "client_id": _remote_ws_client_id(),
+                    "data": {
+                        "hostname": platform.node(),
+                        "pid": os.getpid(),
+                        "status": "online",
+                        "version": "desktop-web-app",
+                        "desktop_base_url": desktop_base_url,
+                    },
+                }
+            )
+            threading.Thread(
+                target=_remote_ws_heartbeat_loop,
+                args=(app, heartbeat_sec),
+                daemon=True,
+            ).start()
+
+        def _on_message(_: Any, message: str) -> None:
+            _remote_ws_handle_message(message)
+
+        def _on_error(_: Any, err: Any) -> None:
+            _remote_ws_set_status(last_error=str(err), connected=False)
+
+        def _on_close(_: Any, __: Any, ___: Any) -> None:
+            _remote_ws_set_status(connected=False)
+
+        app = websocket_client.WebSocketApp(
+            ws_url,
+            on_open=_on_open,
+            on_message=_on_message,
+            on_error=_on_error,
+            on_close=_on_close,
+        )
+        _remote_ws_app = app
+        try:
+            app.run_forever(ping_interval=ping_interval, ping_timeout=ping_timeout)
+        except Exception as exc:
+            _remote_ws_set_status(last_error=str(exc), connected=False)
+        if _remote_ws_stop_event.wait(reconnect_sec):
+            break
+
+
+def _start_remote_ws_if_needed() -> None:
+    global _remote_ws_thread
+    if not _remote_ws_enabled():
+        _remote_ws_set_status(enabled=False)
+        return
+    if _remote_ws_thread and _remote_ws_thread.is_alive():
+        return
+    _remote_ws_stop_event.clear()
+    _remote_ws_thread = threading.Thread(target=_remote_ws_runner, daemon=True, name="remote-ws-client")
+    _remote_ws_thread.start()
 
 
 def _run_command(args: list[str], timeout: int = 120, env: dict[str, str] | None = None) -> tuple[int, str]:
@@ -983,6 +1251,11 @@ def api_appium_ready() -> Any:
     return jsonify(_appium_ready())
 
 
+@app.get("/api/remote_ws_status")
+def api_remote_ws_status() -> Any:
+    return jsonify({"ok": True, "status": _remote_ws_status()})
+
+
 def _auto_open_browser(url: str) -> None:
     time.sleep(0.8)
     webbrowser.open(url)
@@ -996,6 +1269,7 @@ def main() -> None:
         raise SystemExit(exit_code)
 
     _init_runtime_db()
+    _start_remote_ws_if_needed()
     host = (os.getenv("DESKTOP_WEB_HOST") or DEFAULT_HOST).strip() or DEFAULT_HOST
     preferred_port = _env_int("DESKTOP_WEB_PORT", DEFAULT_PORT)
     auto_port_fallback = _env_bool("DESKTOP_WEB_AUTO_PORT_FALLBACK", False)
