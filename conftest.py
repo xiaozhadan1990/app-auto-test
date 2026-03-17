@@ -213,13 +213,15 @@ def pytest_sessionfinish(session, exitstatus) -> None:
         "tests": tests,
     }
 
-    results_file = _PROJECT_ROOT / "reports" / "test_results.json"
+    results_file = Path(os.getenv("TEST_RESULTS_FILE", str(_PROJECT_ROOT / "reports" / "test_results.json")))
     results_file.parent.mkdir(parents=True, exist_ok=True)
     results_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # Also generate HTML report
     try:
         from report_generator import generate_report
-        generate_report(results_file, _PROJECT_ROOT / "reports" / "test_report.html")
+        report_file = Path(os.getenv("TEST_REPORT_FILE", str(_PROJECT_ROOT / "reports" / "test_report.html")))
+        report_file.parent.mkdir(parents=True, exist_ok=True)
+        generate_report(results_file, report_file)
     except Exception:
         pass

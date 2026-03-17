@@ -5,14 +5,18 @@ import os
 import re
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 import webbrowser
+import json
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
@@ -24,6 +28,9 @@ UI_ASSETS_DIR = PROJECT_ROOT / "ui" / "assets"
 REPORTS_ROOT = PROJECT_ROOT / "reports"
 TEST_RESULTS_FILE = REPORTS_ROOT / "test_results.json"
 REPORT_HTML_FILE = REPORTS_ROOT / "test_report.html"
+RUNTIME_DB_FILE = REPORTS_ROOT / "runtime_state.db"
+TASK_LOG_DIR = REPORTS_ROOT / "task-logs"
+TASK_REPORT_DIR = REPORTS_ROOT / "task-reports"
 
 ADB_BIN = "adb"
 DEFAULT_HOST = "127.0.0.1"
@@ -41,6 +48,366 @@ APP_CONFIG: dict[str, dict[str, str]] = {
         "default_test_package": "tests/ruijieCloud",
     },
 }
+
+_tasks_lock = threading.Lock()
+_tasks: dict[str, dict[str, Any]] = {}
+_device_running_task: dict[str, str] = {}
+
+
+def _db_conn() -> sqlite3.Connection:
+    REPORTS_ROOT.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(RUNTIME_DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _init_runtime_db() -> None:
+    conn = _db_conn()
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS device_runtime_status (
+                device_serial TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                task_id TEXT,
+                message TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS task_run_history (
+                task_id TEXT PRIMARY KEY,
+                device_serial TEXT NOT NULL,
+                app_key TEXT,
+                suite TEXT,
+                test_packages TEXT,
+                status TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT,
+                pytest_exit_code INTEGER,
+                allure_exit_code INTEGER,
+                error TEXT,
+                log_path TEXT,
+                allure_output TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS task_report_summary (
+                task_id TEXT PRIMARY KEY,
+                session_start TEXT,
+                session_end TEXT,
+                total INTEGER NOT NULL,
+                passed INTEGER NOT NULL,
+                failed INTEGER NOT NULL,
+                skipped INTEGER NOT NULL,
+                total_duration REAL NOT NULL,
+                pass_rate REAL NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS task_report_cases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                case_index INTEGER NOT NULL,
+                node_id TEXT,
+                name TEXT,
+                status TEXT,
+                duration REAL,
+                app TEXT,
+                screenshot TEXT,
+                video TEXT,
+                error_message TEXT
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_report_cases_task_id ON task_report_cases(task_id)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _set_device_status(device_serial: str, status: str, task_id: str | None = None, message: str = "") -> None:
+    conn = _db_conn()
+    try:
+        conn.execute(
+            """
+            INSERT INTO device_runtime_status(device_serial, status, task_id, message, updated_at)
+            VALUES(?, ?, ?, ?, datetime('now', 'localtime'))
+            ON CONFLICT(device_serial) DO UPDATE SET
+              status=excluded.status,
+              task_id=excluded.task_id,
+              message=excluded.message,
+              updated_at=excluded.updated_at
+            """,
+            (device_serial, status, task_id, message),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _get_device_status(device_serial: str) -> dict[str, Any]:
+    conn = _db_conn()
+    try:
+        row = conn.execute(
+            "SELECT device_serial, status, task_id, message, updated_at FROM device_runtime_status WHERE device_serial=?",
+            (device_serial,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return {
+            "device_serial": device_serial,
+            "status": "idle",
+            "task_id": None,
+            "message": "",
+            "updated_at": None,
+        }
+    return dict(row)
+
+
+def _ensure_task_log_dir() -> None:
+    TASK_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _task_report_paths(task_id: str) -> tuple[Path, Path]:
+    base = TASK_REPORT_DIR / task_id
+    return base / "test_results.json", base / "test_report.html"
+
+
+def _task_report_url(task_id: str) -> str:
+    return f"/api/task_report/{task_id}"
+
+
+def _report_asset_url(rel_path: str | None) -> str | None:
+    value = (rel_path or "").strip()
+    if not value:
+        return None
+    return f"/api/report_asset?path={urllib.parse.quote(value)}"
+
+
+def _task_has_report(task_id: str) -> bool:
+    _, report_file = _task_report_paths(task_id)
+    return report_file.exists()
+
+
+def _task_has_report_data(task_id: str) -> bool:
+    conn = _db_conn()
+    try:
+        row = conn.execute("SELECT task_id FROM task_report_summary WHERE task_id=?", (task_id,)).fetchone()
+    finally:
+        conn.close()
+    return row is not None
+
+
+def _save_task_report_to_db(task_id: str, results_file: Path) -> bool:
+    if not results_file.exists():
+        return False
+    try:
+        data = json.loads(results_file.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+
+    tests = data.get("tests", [])
+    if not isinstance(tests, list):
+        tests = []
+    total = int(data.get("total", len(tests)) or 0)
+    passed = int(data.get("passed", 0) or 0)
+    failed = int(data.get("failed", 0) or 0)
+    skipped = int(data.get("skipped", 0) or 0)
+    total_duration = float(sum((t.get("duration", 0) or 0) for t in tests))
+    pass_rate = (passed / total * 100.0) if total > 0 else 0.0
+
+    conn = _db_conn()
+    try:
+        conn.execute("DELETE FROM task_report_cases WHERE task_id=?", (task_id,))
+        conn.execute("DELETE FROM task_report_summary WHERE task_id=?", (task_id,))
+        conn.execute(
+            """
+            INSERT INTO task_report_summary(
+                task_id, session_start, session_end, total, passed, failed, skipped, total_duration, pass_rate, updated_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+            """,
+            (
+                task_id,
+                str(data.get("session_start") or ""),
+                str(data.get("session_end") or ""),
+                total,
+                passed,
+                failed,
+                skipped,
+                total_duration,
+                pass_rate,
+            ),
+        )
+        for idx, case in enumerate(tests, start=1):
+            conn.execute(
+                """
+                INSERT INTO task_report_cases(
+                    task_id, case_index, node_id, name, status, duration, app, screenshot, video, error_message
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task_id,
+                    idx,
+                    str(case.get("node_id") or ""),
+                    str(case.get("name") or ""),
+                    str(case.get("status") or ""),
+                    float(case.get("duration", 0) or 0),
+                    str(case.get("app") or ""),
+                    str(case.get("screenshot") or ""),
+                    str(case.get("video") or ""),
+                    str(case.get("error_message") or ""),
+                ),
+            )
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+
+def _get_task_report_data(task_id: str) -> dict[str, Any] | None:
+    conn = _db_conn()
+    try:
+        summary_row = conn.execute("SELECT * FROM task_report_summary WHERE task_id=?", (task_id,)).fetchone()
+        if not summary_row:
+            return None
+        case_rows = conn.execute(
+            "SELECT * FROM task_report_cases WHERE task_id=? ORDER BY case_index ASC",
+            (task_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    summary = dict(summary_row)
+    cases = [dict(r) for r in case_rows]
+    for case in cases:
+        case["screenshot_url"] = _report_asset_url(str(case.get("screenshot") or ""))
+        case["video_url"] = _report_asset_url(str(case.get("video") or ""))
+    return {"summary": summary, "tests": cases}
+
+
+def _insert_task_history(
+    task_id: str,
+    device: str,
+    app_key: str,
+    suite: str,
+    test_packages: list[str],
+    log_path: str,
+) -> None:
+    conn = _db_conn()
+    try:
+        conn.execute(
+            """
+            INSERT INTO task_run_history(
+              task_id, device_serial, app_key, suite, test_packages, status, start_time, log_path
+            ) VALUES(?, ?, ?, ?, ?, 'running', datetime('now', 'localtime'), ?)
+            """,
+            (task_id, device, app_key, suite, json.dumps(test_packages, ensure_ascii=False), log_path),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _update_task_history(
+    task_id: str,
+    status: str,
+    pytest_exit_code: int | None = None,
+    allure_exit_code: int | None = None,
+    error: str | None = None,
+    allure_output: str | None = None,
+) -> None:
+    conn = _db_conn()
+    try:
+        conn.execute(
+            """
+            UPDATE task_run_history
+            SET status=?,
+                end_time=datetime('now', 'localtime'),
+                pytest_exit_code=?,
+                allure_exit_code=?,
+                error=?,
+                allure_output=?
+            WHERE task_id=?
+            """,
+            (status, pytest_exit_code, allure_exit_code, error, allure_output, task_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _get_task_history(limit: int = 20, device: str | None = None, status: str | None = None) -> list[dict[str, Any]]:
+    conn = _db_conn()
+    try:
+        if device and status:
+            rows = conn.execute(
+                """
+                SELECT * FROM task_run_history
+                WHERE device_serial=? AND status=?
+                ORDER BY start_time DESC
+                LIMIT ?
+                """,
+                (device, status, limit),
+            ).fetchall()
+        elif device:
+            rows = conn.execute(
+                """
+                SELECT * FROM task_run_history
+                WHERE device_serial=?
+                ORDER BY start_time DESC
+                LIMIT ?
+                """,
+                (device, limit),
+            ).fetchall()
+        elif status:
+            rows = conn.execute(
+                """
+                SELECT * FROM task_run_history
+                WHERE status=?
+                ORDER BY start_time DESC
+                LIMIT ?
+                """,
+                (status, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM task_run_history
+                ORDER BY start_time DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+    finally:
+        conn.close()
+    items = [dict(r) for r in rows]
+    for item in items:
+        task_id = str(item.get("task_id") or "")
+        has_report = _task_has_report(task_id) if task_id else False
+        item["has_report"] = has_report
+        item["report_url"] = _task_report_url(task_id) if has_report else None
+        item["has_report_data"] = _task_has_report_data(task_id) if task_id else False
+    return items
+
+
+def _get_task_record(task_id: str) -> dict[str, Any] | None:
+    conn = _db_conn()
+    try:
+        row = conn.execute("SELECT * FROM task_run_history WHERE task_id=?", (task_id,)).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
 
 
 def _env_int(name: str, default: int) -> int:
@@ -203,28 +570,207 @@ def _run_tests(payload: dict[str, Any]) -> dict[str, Any]:
             marker_expr = f"{app_key} and {suite}"
         cmd.extend(["-m", marker_expr])
 
+    with _tasks_lock:
+        if device in _device_running_task:
+            task_id = _device_running_task[device]
+            return {"ok": False, "error": f"该设备已有任务在运行中: {task_id}", "task_id": task_id}
+
+    _ensure_task_log_dir()
+    task_id = uuid4().hex[:12]
+    log_path = TASK_LOG_DIR / f"{task_id}.log"
+    task_results_file, task_report_file = _task_report_paths(task_id)
+    task_results_file.parent.mkdir(parents=True, exist_ok=True)
+
     env = os.environ.copy()
     env["APPIUM_UDID"] = device
-    pytest_code, pytest_output = _run_command(cmd, timeout=3600, env=env)
+    # Prevent external user-site pytest plugins (e.g. xonsh) from breaking runs.
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    # Isolate per-task result artifacts so history can open any past run.
+    env["TEST_RESULTS_FILE"] = str(task_results_file)
+    env["TEST_REPORT_FILE"] = str(task_report_file)
 
-    from report_generator import generate_report
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(PROJECT_ROOT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            env=env,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"启动 pytest 失败: {exc}"}
 
-    report_ok = generate_report(TEST_RESULTS_FILE, REPORT_HTML_FILE)
-    allure_code = 0 if report_ok else 1
-    allure_output = (
-        f"HTML report generated: {REPORT_HTML_FILE.relative_to(PROJECT_ROOT).as_posix()}"
-        if report_ok
-        else "HTML report generate failed"
-    )
-
-    return {
-        "ok": pytest_code == 0 and report_ok,
-        "pytest_exit_code": pytest_code,
-        "allure_exit_code": allure_code,
-        "pytest_output": pytest_output,
-        "allure_output": allure_output,
-        "error": None if pytest_code == 0 else "pytest 执行失败",
+    task_info = {
+        "task_id": task_id,
+        "device": device,
+        "status": "running",
+        "cmd": cmd,
+        "process": process,
+        "log_path": str(log_path),
+        "start_time": time.time(),
+        "pytest_exit_code": None,
+        "allure_exit_code": None,
+        "allure_output": "",
+        "error": None,
     }
+
+    with _tasks_lock:
+        _tasks[task_id] = task_info
+        _device_running_task[device] = task_id
+
+    _insert_task_history(task_id, device, app_key, suite, test_packages, str(log_path))
+    _set_device_status(device, "running", task_id=task_id, message="任务执行中")
+
+    def _watch_task() -> None:
+        try:
+            with log_path.open("w", encoding="utf-8") as fp:
+                if process.stdout is not None:
+                    for line in process.stdout:
+                        fp.write(line)
+                        fp.flush()
+                exit_code = process.wait()
+            report_ok = task_report_file.exists()
+            if not report_ok:
+                from report_generator import generate_report
+
+                report_ok = generate_report(task_results_file, task_report_file)
+            allure_code = 0 if report_ok else 1
+            allure_output = (
+                f"HTML report generated: {task_report_file.relative_to(PROJECT_ROOT).as_posix()}"
+                if report_ok
+                else "HTML report generate failed"
+            )
+            if report_ok:
+                try:
+                    shutil.copyfile(task_report_file, REPORT_HTML_FILE)
+                    if task_results_file.exists():
+                        shutil.copyfile(task_results_file, TEST_RESULTS_FILE)
+                except Exception:
+                    pass
+            report_data_ok = _save_task_report_to_db(task_id, task_results_file)
+            if not report_data_ok:
+                allure_output = f"{allure_output}; report data save failed"
+
+            with _tasks_lock:
+                info = _tasks.get(task_id)
+                if info is not None:
+                    info["pytest_exit_code"] = exit_code
+                    info["allure_exit_code"] = allure_code
+                    info["allure_output"] = allure_output
+                    if info["status"] != "stopped":
+                        info["status"] = "success" if exit_code == 0 and report_ok else "failed"
+                _device_running_task.pop(device, None)
+
+            final_status = "idle" if exit_code == 0 and report_ok else "failed"
+            final_msg = "任务完成" if final_status == "idle" else "任务失败，请查看日志"
+            _update_task_history(
+                task_id=task_id,
+                status="success" if exit_code == 0 and report_ok else "failed",
+                pytest_exit_code=exit_code,
+                allure_exit_code=allure_code,
+                allure_output=allure_output,
+            )
+            _set_device_status(device, final_status, task_id=task_id, message=final_msg)
+        except Exception as exc:
+            with _tasks_lock:
+                info = _tasks.get(task_id)
+                if info is not None:
+                    info["status"] = "failed"
+                    info["error"] = str(exc)
+                _device_running_task.pop(device, None)
+            _update_task_history(task_id=task_id, status="failed", error=str(exc))
+            _set_device_status(device, "failed", task_id=task_id, message=str(exc))
+
+    threading.Thread(target=_watch_task, daemon=True).start()
+    return {"ok": True, "task_id": task_id, "status": "running"}
+
+
+def _task_status(task_id: str) -> dict[str, Any]:
+    with _tasks_lock:
+        info = _tasks.get(task_id)
+        if info:
+            payload = {
+                "ok": True,
+                "task_id": task_id,
+                "device": info.get("device"),
+                "status": info.get("status"),
+                "pytest_exit_code": info.get("pytest_exit_code"),
+                "allure_exit_code": info.get("allure_exit_code"),
+                "allure_output": info.get("allure_output"),
+                "error": info.get("error"),
+                "has_report": _task_has_report(task_id),
+                "report_url": _task_report_url(task_id) if _task_has_report(task_id) else None,
+                "has_report_data": _task_has_report_data(task_id),
+            }
+            log_path = Path(str(info.get("log_path") or ""))
+        else:
+            record = _get_task_record(task_id)
+            if not record:
+                return {"ok": False, "error": f"任务不存在: {task_id}"}
+            payload = {
+                "ok": True,
+                "task_id": task_id,
+                "device": record.get("device_serial"),
+                "status": record.get("status"),
+                "pytest_exit_code": record.get("pytest_exit_code"),
+                "allure_exit_code": record.get("allure_exit_code"),
+                "allure_output": record.get("allure_output") or "",
+                "error": record.get("error"),
+                "has_report": _task_has_report(task_id),
+                "report_url": _task_report_url(task_id) if _task_has_report(task_id) else None,
+                "has_report_data": _task_has_report_data(task_id),
+            }
+            log_path = Path(str(record.get("log_path") or ""))
+    if log_path.exists():
+        try:
+            payload["pytest_output"] = log_path.read_text(encoding="utf-8", errors="ignore")[-120000:]
+        except Exception:
+            payload["pytest_output"] = ""
+    else:
+        payload["pytest_output"] = ""
+    return payload
+
+
+def _stop_task(payload: dict[str, Any]) -> dict[str, Any]:
+    task_id = str(payload.get("task_id") or "").strip()
+    device = str(payload.get("device") or "").strip()
+
+    with _tasks_lock:
+        if not task_id and device:
+            task_id = _device_running_task.get(device) or ""
+        if not task_id:
+            return {"ok": False, "error": "task_id 或 device 至少提供一个"}
+        info = _tasks.get(task_id)
+        if not info:
+            return {"ok": False, "error": f"任务不存在: {task_id}"}
+        process: subprocess.Popen[str] = info.get("process")
+        dev = str(info.get("device") or "")
+
+    if process.poll() is not None:
+        _set_device_status(dev, "idle", task_id=task_id, message="任务已结束")
+        return {"ok": True, "task_id": task_id, "status": "finished"}
+
+    try:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except Exception:
+            process.kill()
+    except Exception as exc:
+        return {"ok": False, "error": f"停止任务失败: {exc}"}
+
+    with _tasks_lock:
+        info = _tasks.get(task_id)
+        if info:
+            info["status"] = "stopped"
+            info["error"] = "任务被手动停止"
+        _device_running_task.pop(dev, None)
+    _update_task_history(task_id=task_id, status="stopped", error="任务被手动停止")
+    _set_device_status(dev, "idle", task_id=task_id, message="任务已停止")
+    return {"ok": True, "task_id": task_id, "status": "stopped"}
 
 
 def _open_report() -> dict[str, Any]:
@@ -287,6 +833,79 @@ def api_run_tests() -> Any:
     return jsonify(_run_tests(payload))
 
 
+@app.get("/api/task_status/<task_id>")
+def api_task_status(task_id: str) -> Any:
+    return jsonify(_task_status(task_id))
+
+
+@app.get("/api/task_history")
+def api_task_history() -> Any:
+    limit_raw = request.args.get("limit", "20")
+    device = (request.args.get("device") or "").strip() or None
+    status = (request.args.get("status") or "").strip().lower() or None
+    if status and status not in {"running", "success", "failed", "stopped"}:
+        status = None
+    try:
+        limit = max(1, min(int(limit_raw), 200))
+    except ValueError:
+        limit = 20
+    return jsonify({"ok": True, "tasks": _get_task_history(limit=limit, device=device, status=status)})
+
+
+@app.get("/api/task_log/<task_id>")
+def api_task_log(task_id: str) -> Any:
+    record = _get_task_record(task_id)
+    if not record:
+        return jsonify({"ok": False, "error": f"任务不存在: {task_id}"}), 404
+    log_path = Path(str(record.get("log_path") or ""))
+    if not log_path.exists():
+        return jsonify({"ok": False, "error": f"日志不存在: {log_path}"}), 404
+    return send_file(log_path, as_attachment=True, download_name=f"{task_id}.log", mimetype="text/plain")
+
+
+@app.get("/api/task_report/<task_id>")
+def api_task_report(task_id: str) -> Any:
+    _, report_file = _task_report_paths(task_id)
+    if not report_file.exists():
+        return jsonify({"ok": False, "error": f"任务报告不存在: {task_id}"}), 404
+    return send_file(report_file, mimetype="text/html")
+
+
+@app.get("/api/task_report_data/<task_id>")
+def api_task_report_data(task_id: str) -> Any:
+    data = _get_task_report_data(task_id)
+    if not data:
+        return jsonify({"ok": False, "error": f"任务报告数据不存在: {task_id}"}), 404
+    return jsonify({"ok": True, "task_id": task_id, **data})
+
+
+@app.get("/api/report_asset")
+def api_report_asset() -> Any:
+    rel_path = (request.args.get("path") or "").strip()
+    if not rel_path:
+        return jsonify({"ok": False, "error": "path 不能为空"}), 400
+    target = (PROJECT_ROOT / rel_path).resolve()
+    reports_root = REPORTS_ROOT.resolve()
+    try:
+        target.relative_to(reports_root)
+    except ValueError:
+        return jsonify({"ok": False, "error": "非法路径"}), 403
+    if not target.exists():
+        return jsonify({"ok": False, "error": f"文件不存在: {rel_path}"}), 404
+    return send_file(target)
+
+
+@app.post("/api/stop_task")
+def api_stop_task() -> Any:
+    payload = request.get_json(silent=True) or {}
+    return jsonify(_stop_task(payload))
+
+
+@app.get("/api/device_status/<device_serial>")
+def api_device_status(device_serial: str) -> Any:
+    return jsonify({"ok": True, "device_status": _get_device_status(device_serial)})
+
+
 @app.post("/api/open_report")
 def api_open_report() -> Any:
     return jsonify(_open_report())
@@ -308,6 +927,7 @@ def _auto_open_browser(url: str) -> None:
 
 
 def main() -> None:
+    _init_runtime_db()
     host = (os.getenv("DESKTOP_WEB_HOST") or DEFAULT_HOST).strip() or DEFAULT_HOST
     preferred_port = _env_int("DESKTOP_WEB_PORT", DEFAULT_PORT)
     auto_port_fallback = _env_bool("DESKTOP_WEB_AUTO_PORT_FALLBACK", False)

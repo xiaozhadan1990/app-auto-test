@@ -128,6 +128,22 @@ cd .\web-ui
 yarn dev
 ```
 
+一键启动前后端（推荐）：
+
+```powershell
+# 自动清理端口冲突并分别拉起后端 + 前端
+.\start_dev_all.ps1
+
+# 已安装依赖时可跳过检查
+.\start_dev_all.ps1 -NoInstall
+```
+
+一键停止前后端：
+
+```powershell
+.\stop_dev_all.ps1
+```
+
 ## 测试标记
 
 | 标记 | 说明 |
