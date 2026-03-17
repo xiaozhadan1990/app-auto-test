@@ -1,0 +1,45 @@
+# ---- OS / Editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+env/
+
+# ---- Environment / secrets ----
+.env
+!.env.example
+
+# ---- Test reports & runtime artifacts ----
+reports/
+!reports/.gitkeep
+*.log
+
+# ---- Build outputs ----
+build/
+dist/
+build-assets/
+*.spec
+
+# ---- Frontend (React/Vite) ----
+web-ui/node_modules/
+web-ui/dist/
+web-ui/.vite/
+ui/assets/
+ui/index.html
+node_modules
+
+
