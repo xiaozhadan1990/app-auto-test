@@ -21,11 +21,18 @@ from uuid import uuid4
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
 
-APP_BASE_DIR: Path = Path(__file__).resolve().parent
-PROJECT_ROOT = APP_BASE_DIR
-UI_HTML_FILE = PROJECT_ROOT / "ui" / "index.html"
-UI_ASSETS_DIR = PROJECT_ROOT / "ui" / "assets"
-REPORTS_ROOT = PROJECT_ROOT / "reports"
+if getattr(sys, "frozen", False):
+    # PyInstaller one-dir resources are under _internal (sys._MEIPASS).
+    RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    RUNTIME_ROOT = Path(sys.executable).resolve().parent
+else:
+    RESOURCE_ROOT = Path(__file__).resolve().parent
+    RUNTIME_ROOT = RESOURCE_ROOT
+
+PROJECT_ROOT = RESOURCE_ROOT
+UI_HTML_FILE = RESOURCE_ROOT / "ui" / "index.html"
+UI_ASSETS_DIR = RESOURCE_ROOT / "ui" / "assets"
+REPORTS_ROOT = RUNTIME_ROOT / "reports"
 TEST_RESULTS_FILE = REPORTS_ROOT / "test_results.json"
 REPORT_HTML_FILE = REPORTS_ROOT / "test_report.html"
 RUNTIME_DB_FILE = REPORTS_ROOT / "runtime_state.db"
@@ -52,6 +59,20 @@ APP_CONFIG: dict[str, dict[str, str]] = {
 _tasks_lock = threading.Lock()
 _tasks: dict[str, dict[str, Any]] = {}
 _device_running_task: dict[str, str] = {}
+
+
+def _is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def _safe_display_path(path: Path) -> str:
+    p = path.resolve()
+    for base in (RUNTIME_ROOT, RESOURCE_ROOT, PROJECT_ROOT):
+        try:
+            return p.relative_to(base.resolve()).as_posix()
+        except Exception:
+            continue
+    return str(path)
 
 
 def _db_conn() -> sqlite3.Connection:
@@ -563,12 +584,18 @@ def _run_tests(payload: dict[str, Any]) -> dict[str, Any]:
         detail = appium_state.get("error") or "unknown error"
         return {"ok": False, "error": f"Appium 未启动，请先启动后再执行测试。地址: {server_url}，详情: {detail}"}
 
-    cmd = [sys.executable, "-m", "pytest", *test_packages, "-v"]
+    pytest_args = [*test_packages, "-v"]
     if suite in ("smoke", "full"):
         marker_expr = suite
         if app_key in APP_CONFIG:
             marker_expr = f"{app_key} and {suite}"
-        cmd.extend(["-m", marker_expr])
+        pytest_args.extend(["-m", marker_expr])
+
+    if _is_frozen():
+        # In PyInstaller app, sys.executable is the UI exe (not python.exe).
+        cmd = [sys.executable, "--run-pytest", *pytest_args]
+    else:
+        cmd = [sys.executable, "-m", "pytest", *pytest_args]
 
     with _tasks_lock:
         if device in _device_running_task:
@@ -585,6 +612,8 @@ def _run_tests(payload: dict[str, Any]) -> dict[str, Any]:
     env["APPIUM_UDID"] = device
     # Prevent external user-site pytest plugins (e.g. xonsh) from breaking runs.
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    # Reduce noisy deprecation warning from bundled importer/pkg_resources.
+    env["PYTHONWARNINGS"] = "ignore:pkg_resources is deprecated as an API:UserWarning"
     # Isolate per-task result artifacts so history can open any past run.
     env["TEST_RESULTS_FILE"] = str(task_results_file)
     env["TEST_REPORT_FILE"] = str(task_report_file)
@@ -625,6 +654,7 @@ def _run_tests(payload: dict[str, Any]) -> dict[str, Any]:
     _set_device_status(device, "running", task_id=task_id, message="任务执行中")
 
     def _watch_task() -> None:
+        exit_code: int | None = None
         try:
             with log_path.open("w", encoding="utf-8") as fp:
                 if process.stdout is not None:
@@ -632,48 +662,6 @@ def _run_tests(payload: dict[str, Any]) -> dict[str, Any]:
                         fp.write(line)
                         fp.flush()
                 exit_code = process.wait()
-            report_ok = task_report_file.exists()
-            if not report_ok:
-                from report_generator import generate_report
-
-                report_ok = generate_report(task_results_file, task_report_file)
-            allure_code = 0 if report_ok else 1
-            allure_output = (
-                f"HTML report generated: {task_report_file.relative_to(PROJECT_ROOT).as_posix()}"
-                if report_ok
-                else "HTML report generate failed"
-            )
-            if report_ok:
-                try:
-                    shutil.copyfile(task_report_file, REPORT_HTML_FILE)
-                    if task_results_file.exists():
-                        shutil.copyfile(task_results_file, TEST_RESULTS_FILE)
-                except Exception:
-                    pass
-            report_data_ok = _save_task_report_to_db(task_id, task_results_file)
-            if not report_data_ok:
-                allure_output = f"{allure_output}; report data save failed"
-
-            with _tasks_lock:
-                info = _tasks.get(task_id)
-                if info is not None:
-                    info["pytest_exit_code"] = exit_code
-                    info["allure_exit_code"] = allure_code
-                    info["allure_output"] = allure_output
-                    if info["status"] != "stopped":
-                        info["status"] = "success" if exit_code == 0 and report_ok else "failed"
-                _device_running_task.pop(device, None)
-
-            final_status = "idle" if exit_code == 0 and report_ok else "failed"
-            final_msg = "任务完成" if final_status == "idle" else "任务失败，请查看日志"
-            _update_task_history(
-                task_id=task_id,
-                status="success" if exit_code == 0 and report_ok else "failed",
-                pytest_exit_code=exit_code,
-                allure_exit_code=allure_code,
-                allure_output=allure_output,
-            )
-            _set_device_status(device, final_status, task_id=task_id, message=final_msg)
         except Exception as exc:
             with _tasks_lock:
                 info = _tasks.get(task_id)
@@ -683,6 +671,70 @@ def _run_tests(payload: dict[str, Any]) -> dict[str, Any]:
                 _device_running_task.pop(device, None)
             _update_task_history(task_id=task_id, status="failed", error=str(exc))
             _set_device_status(device, "failed", task_id=task_id, message=str(exc))
+            return
+
+        report_ok = False
+        post_errors: list[str] = []
+        try:
+            report_ok = task_report_file.exists()
+            if not report_ok:
+                from report_generator import generate_report
+
+                report_ok = generate_report(task_results_file, task_report_file)
+            allure_output = (
+                f"HTML report generated: {_safe_display_path(task_report_file)}"
+                if report_ok
+                else "HTML report generate failed"
+            )
+            if report_ok:
+                try:
+                    shutil.copyfile(task_report_file, REPORT_HTML_FILE)
+                    if task_results_file.exists():
+                        shutil.copyfile(task_results_file, TEST_RESULTS_FILE)
+                except Exception as exc:
+                    post_errors.append(f"copy latest report failed: {exc}")
+            report_data_ok = _save_task_report_to_db(task_id, task_results_file)
+            if not report_data_ok:
+                post_errors.append("report data save failed")
+        except Exception as exc:
+            allure_output = "report post-process failed"
+            post_errors.append(str(exc))
+
+        allure_code = 0 if report_ok else 1
+        if post_errors:
+            allure_output = f"{allure_output}; {'; '.join(post_errors)}"
+
+        with _tasks_lock:
+            info = _tasks.get(task_id)
+            was_stopped = bool(info is not None and info.get("status") == "stopped")
+            if info is not None:
+                info["pytest_exit_code"] = exit_code
+                info["allure_exit_code"] = allure_code
+                info["allure_output"] = allure_output
+                if not was_stopped:
+                    # pytest 成功时，后处理异常仅记告警，不再影响任务成功状态。
+                    info["status"] = "success" if exit_code == 0 else "failed"
+            _device_running_task.pop(device, None)
+
+        final_task_status = "stopped" if was_stopped else ("success" if exit_code == 0 else "failed")
+        final_status = "idle" if final_task_status in {"success", "stopped"} else "failed"
+        if final_task_status == "stopped":
+            final_msg = "任务已停止"
+        elif final_status == "idle":
+            final_msg = "任务完成"
+        else:
+            final_msg = "任务失败，请查看日志"
+        update_error = "任务被手动停止" if final_task_status == "stopped" else None
+        _update_task_history(
+            task_id=task_id,
+            status=final_task_status,
+            pytest_exit_code=exit_code,
+            allure_exit_code=allure_code,
+            error=update_error,
+            allure_output=allure_output,
+        )
+        _set_device_status(device, final_status, task_id=task_id, message=final_msg)
+        return
 
     threading.Thread(target=_watch_task, daemon=True).start()
     return {"ok": True, "task_id": task_id, "status": "running"}
@@ -884,14 +936,24 @@ def api_report_asset() -> Any:
     rel_path = (request.args.get("path") or "").strip()
     if not rel_path:
         return jsonify({"ok": False, "error": "path 不能为空"}), 400
-    target = (PROJECT_ROOT / rel_path).resolve()
-    reports_root = REPORTS_ROOT.resolve()
-    try:
-        target.relative_to(reports_root)
-    except ValueError:
-        return jsonify({"ok": False, "error": "非法路径"}), 403
-    if not target.exists():
-        return jsonify({"ok": False, "error": f"文件不存在: {rel_path}"}), 404
+    # Support both runtime reports folder and PyInstaller resource reports folder.
+    # In packaged mode, screenshots/videos can be generated under _internal/reports.
+    allowed_roots = [REPORTS_ROOT.resolve(), (RESOURCE_ROOT / "reports").resolve()]
+    candidate_roots = [RUNTIME_ROOT.resolve(), RESOURCE_ROOT.resolve()]
+
+    target: Path | None = None
+    for root in candidate_roots:
+        candidate = (root / rel_path).resolve()
+        try:
+            if any(candidate.is_relative_to(base) for base in allowed_roots):
+                if candidate.exists():
+                    target = candidate
+                    break
+        except Exception:
+            continue
+
+    if target is None:
+        return jsonify({"ok": False, "error": f"文件不存在或路径非法: {rel_path}"}), 404
     return send_file(target)
 
 
@@ -927,6 +989,12 @@ def _auto_open_browser(url: str) -> None:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "--run-pytest":
+        import pytest
+
+        exit_code = int(pytest.main(sys.argv[2:]))
+        raise SystemExit(exit_code)
+
     _init_runtime_db()
     host = (os.getenv("DESKTOP_WEB_HOST") or DEFAULT_HOST).strip() or DEFAULT_HOST
     preferred_port = _env_int("DESKTOP_WEB_PORT", DEFAULT_PORT)

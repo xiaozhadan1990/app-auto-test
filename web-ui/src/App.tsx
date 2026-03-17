@@ -55,6 +55,7 @@ type TaskHistoryItem = {
   allure_exit_code?: number | null;
   error?: string | null;
   log_path?: string | null;
+  allure_output?: string | null;
   has_report?: boolean;
   report_url?: string | null;
   has_report_data?: boolean;
@@ -161,6 +162,14 @@ function formatCaseStatus(status?: string): string {
   return status || "-";
 }
 
+function hasReportWarning(task: TaskHistoryItem): boolean {
+  const status = (task.status || "").toLowerCase();
+  if (status !== "success") return false;
+  if ((task.allure_exit_code ?? 0) !== 0) return true;
+  const output = (task.allure_output || "").toLowerCase();
+  return output.includes("failed") || output.includes("warning") || output.includes("warn");
+}
+
 async function apiRequest<T>(path: string, body?: unknown): Promise<T> {
   const resp = await fetch(path, {
     method: body === undefined ? "GET" : "POST",
@@ -219,6 +228,10 @@ function App() {
     () => taskHistory.find((t) => t.task_id === reportTaskId),
     [taskHistory, reportTaskId]
   );
+  const displayTaskHistory = useMemo(() => {
+    if (historyStatusFilter !== "report_warning") return taskHistory;
+    return taskHistory.filter((t) => hasReportWarning(t));
+  }, [taskHistory, historyStatusFilter]);
   const filteredReportCases = useMemo(() => {
     if (reportCaseStatusFilter === "all") return reportCases;
     return reportCases.filter((c) => (c.status || "").toLowerCase() === reportCaseStatusFilter);
@@ -239,7 +252,9 @@ function App() {
     const params = new URLSearchParams();
     params.set("limit", "30");
     if (selectedDevice) params.set("device", selectedDevice);
-    if (historyStatusFilter !== "all") params.set("status", historyStatusFilter);
+    if (historyStatusFilter !== "all" && historyStatusFilter !== "report_warning") {
+      params.set("status", historyStatusFilter);
+    }
     const url = `/api/task_history?${params.toString()}`;
     const res = await apiRequest<{ ok: boolean; tasks: TaskHistoryItem[] }>(url);
     if (res.ok) {
@@ -382,58 +397,63 @@ function App() {
   };
 
   const runTests = async () => {
-    const appium = await apiRequest<{ running: boolean; server_url?: string; error?: string }>(
-      "/api/appium_ready"
-    );
-    if (!appium.running) {
-      const addr = appium.server_url || "http://127.0.0.1:4723";
-      msgApi.error(`Appium 未启动（${addr}）`);
-      setLogText(`执行已取消：Appium 未启动\n地址: ${addr}\n详情: ${appium.error || "unknown error"}`);
-      setActiveTab("results");
-      return;
-    }
-    if (!executionPackages.length) {
-      msgApi.error("请先添加至少一个待执行用例");
-      return;
-    }
-    if (!selectedDevice) {
-      msgApi.error("请先选择手机设备");
-      return;
-    }
-    if (!selectedApp) {
-      msgApi.error("请先选择应用");
-      return;
-    }
-    if (isSelectedDeviceRunning) {
-      msgApi.warning("该手机已有任务在运行中，不能重复启动");
-      return;
-    }
-
-    setActiveTab("results");
-    setLogText(
-      `正在执行测试，请稍候...\n执行顺序:\n${executionPackages
-        .map((p, i) => `${i + 1}. ${p}`)
-        .join("\n")}`
-    );
-    const res = await apiRequest<ApiOk & { task_id?: string; status?: string }>(
-      "/api/run_tests",
-      {
-      device: selectedDevice,
-      app_key: selectedApp,
-      test_packages: executionPackages,
-      suite,
+    try {
+      const appium = await apiRequest<{ running: boolean; server_url?: string; error?: string }>(
+        "/api/appium_ready"
+      );
+      if (!appium.running) {
+        const addr = appium.server_url || "http://127.0.0.1:4723";
+        msgApi.error(`Appium 未启动（${addr}）`);
+        setLogText(`执行已取消：Appium 未启动\n地址: ${addr}\n详情: ${appium.error || "unknown error"}`);
+        setActiveTab("results");
+        return;
       }
-    );
-    if (!res.ok) {
-      setLogText(`执行失败\n\n${res.error || "unknown error"}`);
-      return;
-    }
-    if (res.task_id) {
-      setCurrentTaskId(res.task_id);
-      await refreshDeviceRuntime(selectedDevice);
-      await refreshTaskHistory();
-      msgApi.success(`任务已启动: ${res.task_id}`);
-      setLogText((old) => `${old}\n\n任务已创建: ${res.task_id}`);
+      if (!executionPackages.length) {
+        msgApi.error("请先添加至少一个待执行用例");
+        return;
+      }
+      if (!selectedDevice) {
+        msgApi.error("请先选择手机设备");
+        return;
+      }
+      if (!selectedApp) {
+        msgApi.error("请先选择应用");
+        return;
+      }
+      if (isSelectedDeviceRunning) {
+        msgApi.warning("该手机已有任务在运行中，不能重复启动");
+        return;
+      }
+
+      setActiveTab("results");
+      setLogText(
+        `正在执行测试，请稍候...\n执行顺序:\n${executionPackages
+          .map((p, i) => `${i + 1}. ${p}`)
+          .join("\n")}`
+      );
+      const res = await apiRequest<ApiOk & { task_id?: string; status?: string }>(
+        "/api/run_tests",
+        {
+          device: selectedDevice,
+          app_key: selectedApp,
+          test_packages: executionPackages,
+          suite,
+        }
+      );
+      if (!res.ok) {
+        setLogText(`执行失败\n\n${res.error || "unknown error"}`);
+        return;
+      }
+      if (res.task_id) {
+        setCurrentTaskId(res.task_id);
+        await refreshDeviceRuntime(selectedDevice);
+        await refreshTaskHistory();
+        msgApi.success(`任务已启动: ${res.task_id}`);
+        setLogText((old) => `${old}\n\n任务已创建: ${res.task_id}`);
+      }
+    } catch (err) {
+      msgApi.error("启动任务失败");
+      setLogText(`执行失败\n\n${String(err)}`);
     }
   };
 
@@ -664,12 +684,21 @@ function App() {
           </Row>
 
           <Space style={{ marginTop: 12 }}>
-            <Button onClick={refreshSelectedDeviceStatus}>刷新设备状态</Button>
-            <Button onClick={() => refreshPackages()}>刷新用例包</Button>
-            <Button type="primary" onClick={runTests} disabled={isSelectedDeviceRunning}>
+            <Button htmlType="button" onClick={refreshSelectedDeviceStatus}>刷新设备状态</Button>
+            <Button htmlType="button" onClick={() => refreshPackages()}>刷新用例包</Button>
+            <Button
+              htmlType="button"
+              type="primary"
+              onClick={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                void runTests();
+              }}
+              disabled={isSelectedDeviceRunning}
+            >
               启动执行
             </Button>
-            <Button danger onClick={stopCurrentTask} disabled={!isSelectedDeviceRunning}>
+            <Button htmlType="button" danger onClick={stopCurrentTask} disabled={!isSelectedDeviceRunning}>
               停止任务
             </Button>
           </Space>
@@ -773,6 +802,7 @@ function App() {
                   { value: "success", label: "成功" },
                   { value: "failed", label: "失败" },
                   { value: "stopped", label: "已停止" },
+                  { value: "report_warning", label: "仅报告告警" },
                 ]}
               />
               <Button onClick={refreshTaskHistory}>刷新历史</Button>
@@ -787,7 +817,7 @@ function App() {
             rowKey="task_id"
             size="small"
             pagination={{ pageSize: 8, hideOnSinglePage: true }}
-            dataSource={taskHistory}
+            dataSource={displayTaskHistory}
             onRow={(record) => ({
               onClick: () => {
                 setCurrentTaskId(record.task_id);
@@ -810,9 +840,15 @@ function App() {
                     s === "failed" ? "red" :
                     s === "running" ? "blue" :
                     s === "stopped" ? "orange" : "default";
-                  return <Tag color={color}>{formatRunStatus(r.status)}</Tag>;
+                  const warn = hasReportWarning(r);
+                  return (
+                    <Space size={6}>
+                      <Tag color={color}>{formatRunStatus(r.status)}</Tag>
+                      {warn && <Tag color="gold" title={r.allure_output || "报告后处理存在告警"}>报告告警</Tag>}
+                    </Space>
+                  );
                 },
-                width: 110,
+                width: 190,
               },
               { title: "开始时间", dataIndex: "start_time", width: 170 },
               { title: "结束时间", dataIndex: "end_time", width: 170 },
