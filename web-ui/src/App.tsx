@@ -462,6 +462,56 @@ function App() {
     }
   };
 
+  const refreshSelectedDeviceStatus = async () => {
+    if (!selectedDevice) {
+      msgApi.warning("请先选择手机设备");
+      return;
+    }
+    const s = await refreshDeviceRuntime(selectedDevice);
+    if (s?.status === "running" && s.task_id) {
+      setCurrentTaskId((old) => old || s.task_id || undefined);
+    } else if (s && s.status !== "running") {
+      setCurrentTaskId(undefined);
+    }
+  };
+
+  const refreshCurrentTaskStatus = async () => {
+    if (!currentTaskId) {
+      msgApi.warning("当前没有可刷新的任务");
+      return;
+    }
+    try {
+      const res = await apiRequest<
+        ApiOk & {
+          task_id?: string;
+          status?: string;
+          pytest_exit_code?: number | null;
+          allure_exit_code?: number | null;
+          pytest_output?: string;
+          allure_output?: string;
+          error?: string;
+          device?: string;
+        }
+      >(`/api/task_status/${encodeURIComponent(currentTaskId)}`);
+      if (!res.ok) return;
+      setLogText(
+        `任务: ${res.task_id}\n状态: ${formatRunStatus(res.status)}\nPytest结果: ${formatExitCode(
+          res.pytest_exit_code
+        )}\n报告结果: ${formatExitCode(res.allure_exit_code)}\n\n${res.pytest_output || ""}\n\n--- 报告输出 ---\n${
+          res.allure_output || ""
+        }${res.error ? `\n\n错误: ${res.error}` : ""}`
+      );
+      if (res.status && ["success", "failed", "stopped"].includes(res.status)) {
+        setCurrentTaskId(undefined);
+        if (selectedDevice) await refreshDeviceRuntime(selectedDevice);
+        await refreshTaskHistory();
+        msgApi.info(`任务已结束: ${res.status}`);
+      }
+    } catch {
+      msgApi.error("刷新任务状态失败");
+    }
+  };
+
   useEffect(() => {
     (async () => {
       try {
@@ -493,56 +543,11 @@ function App() {
         setCurrentTaskId(s.task_id);
       }
     });
-    const timer = setInterval(async () => {
-      const s = await refreshDeviceRuntime(selectedDevice);
-      if (s?.status === "running" && s.task_id) {
-        setCurrentTaskId((old) => old || s.task_id || undefined);
-      }
-    }, 2000);
-    return () => clearInterval(timer);
   }, [selectedDevice]);
 
   useEffect(() => {
     if (!currentTaskId) return;
-    let active = true;
-    const poll = async () => {
-      try {
-        const res = await apiRequest<
-          ApiOk & {
-            task_id?: string;
-            status?: string;
-            pytest_exit_code?: number | null;
-            allure_exit_code?: number | null;
-            pytest_output?: string;
-            allure_output?: string;
-            error?: string;
-            device?: string;
-          }
-        >(`/api/task_status/${encodeURIComponent(currentTaskId)}`);
-        if (!active || !res.ok) return;
-        setLogText(
-          `任务: ${res.task_id}\n状态: ${formatRunStatus(res.status)}\nPytest结果: ${formatExitCode(
-            res.pytest_exit_code
-          )}\n报告结果: ${formatExitCode(res.allure_exit_code)}\n\n${res.pytest_output || ""}\n\n--- 报告输出 ---\n${
-            res.allure_output || ""
-          }${res.error ? `\n\n错误: ${res.error}` : ""}`
-        );
-        if (res.status && ["success", "failed", "stopped"].includes(res.status)) {
-          setCurrentTaskId(undefined);
-          if (selectedDevice) await refreshDeviceRuntime(selectedDevice);
-          await refreshTaskHistory();
-          msgApi.info(`任务已结束: ${res.status}`);
-        }
-      } catch {
-        // ignore transient polling errors
-      }
-    };
-    poll();
-    const timer = setInterval(poll, 2000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
+    refreshCurrentTaskStatus();
   }, [currentTaskId, selectedDevice]);
 
   useEffect(() => {
@@ -659,6 +664,7 @@ function App() {
           </Row>
 
           <Space style={{ marginTop: 12 }}>
+            <Button onClick={refreshSelectedDeviceStatus}>刷新设备状态</Button>
             <Button onClick={() => refreshPackages()}>刷新用例包</Button>
             <Button type="primary" onClick={runTests} disabled={isSelectedDeviceRunning}>
               启动执行
@@ -770,6 +776,9 @@ function App() {
                 ]}
               />
               <Button onClick={refreshTaskHistory}>刷新历史</Button>
+              <Button onClick={refreshCurrentTaskStatus} disabled={!currentTaskId}>
+                刷新任务状态
+              </Button>
               <Button onClick={openReport}>打开最近报告</Button>
             </Space>
           }
