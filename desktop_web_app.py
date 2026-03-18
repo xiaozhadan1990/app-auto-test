@@ -44,6 +44,7 @@ REPORT_HTML_FILE = REPORTS_ROOT / "test_report.html"
 RUNTIME_DB_FILE = REPORTS_ROOT / "runtime_state.db"
 TASK_LOG_DIR = REPORTS_ROOT / "task-logs"
 TASK_REPORT_DIR = REPORTS_ROOT / "task-reports"
+REMOTE_WS_LOG_FILE = REPORTS_ROOT / "remote-ws.log"
 
 ADB_BIN = "adb"
 DEFAULT_HOST = "127.0.0.1"
@@ -51,18 +52,32 @@ DEFAULT_PORT = 17999
 
 
 def _load_local_env_file() -> None:
-    env_path = RUNTIME_ROOT / ".env"
-    if not env_path.exists():
-        return
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    candidates: list[Path] = [
+        RUNTIME_ROOT / ".env",
+        RUNTIME_ROOT / "_internal" / ".env",
+        RESOURCE_ROOT / ".env",
+        RESOURCE_ROOT.parent / ".env",
+    ]
+    seen: set[Path] = set()
+    for env_path in candidates:
+        try:
+            resolved = env_path.resolve()
+        except Exception:
+            resolved = env_path
+        if resolved in seen:
             continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key:
-            os.environ.setdefault(key, value)
+        seen.add(resolved)
+        if not env_path.exists():
+            continue
+        for raw_line in env_path.read_text(encoding="utf-8-sig").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                os.environ.setdefault(key, value)
 
 
 _load_local_env_file()
@@ -474,6 +489,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 _remote_ws_lock = threading.Lock()
 _remote_ws_send_lock = threading.Lock()
+_remote_ws_log_lock = threading.Lock()
 _remote_ws_stop_event = threading.Event()
 _remote_ws_thread: threading.Thread | None = None
 _remote_ws_app: Any = None
@@ -514,6 +530,36 @@ def _remote_ws_status() -> dict[str, Any]:
         return dict(_remote_ws_status_state)
 
 
+def _remote_ws_log(event: str, **fields: Any) -> None:
+    REPORTS_ROOT.mkdir(parents=True, exist_ok=True)
+    ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    payload = {"event": event, **fields}
+    safe_payload = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    line = f"[{ts}] {safe_payload}\n"
+    try:
+        with _remote_ws_log_lock:
+            with REMOTE_WS_LOG_FILE.open("a", encoding="utf-8") as f:
+                f.write(line)
+    except Exception:
+        # Never let logging failures affect websocket behavior.
+        pass
+
+
+def _read_remote_ws_log_lines(max_lines: int = 200) -> list[str]:
+    if max_lines <= 0:
+        max_lines = 1
+    max_lines = min(max_lines, 2000)
+    if not REMOTE_WS_LOG_FILE.exists():
+        return []
+    try:
+        lines = REMOTE_WS_LOG_FILE.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return []
+    if len(lines) <= max_lines:
+        return lines
+    return lines[-max_lines:]
+
+
 def _remote_ws_send_json(payload: dict[str, Any]) -> bool:
     global _remote_ws_app
     app = _remote_ws_app
@@ -525,6 +571,7 @@ def _remote_ws_send_json(payload: dict[str, Any]) -> bool:
         return True
     except Exception as exc:
         _remote_ws_set_status(last_error=str(exc), connected=False)
+        _remote_ws_log("send_failed", error=str(exc), payload_type=str(payload.get("type") or "unknown"))
         return False
 
 
@@ -597,8 +644,10 @@ def _remote_ws_handle_message(raw: str) -> None:
     try:
         msg = json.loads(raw)
     except Exception:
+        _remote_ws_log("message_parse_failed", raw_preview=raw[:200])
         return
     msg_type = str(msg.get("type") or "").strip().lower()
+    _remote_ws_log("message_received", message_type=msg_type or "unknown")
     if msg_type == "command":
         action = str(msg.get("action") or "").strip()
         request_id = str(msg.get("request_id") or "").strip()
@@ -628,6 +677,7 @@ def _remote_ws_handle_message(raw: str) -> None:
         _remote_ws_send_json(resp)
     elif msg_type in {"register_ack", "heartbeat_ack"}:
         _remote_ws_set_status(last_heartbeat_ts=int(time.time()))
+        _remote_ws_log("message_ack", message_type=msg_type)
 
 
 def _remote_ws_heartbeat_loop(app: Any, interval_sec: int) -> None:
@@ -643,12 +693,15 @@ def _remote_ws_runner() -> None:
     global _remote_ws_app
     if websocket_client is None:
         _remote_ws_set_status(last_error="websocket-client 未安装", enabled=False)
+        _remote_ws_log("disabled", reason="websocket-client missing")
         return
     ws_url = (os.getenv("REMOTE_WS_URL") or "").strip()
     if not ws_url:
         _remote_ws_set_status(enabled=False, url="", connected=False)
+        _remote_ws_log("disabled", reason="REMOTE_WS_URL empty")
         return
     _remote_ws_set_status(enabled=True, url=ws_url, client_id=_remote_ws_client_id())
+    _remote_ws_log("runner_started", ws_url=ws_url, client_id=_remote_ws_client_id())
     heartbeat_sec = max(5, _env_int("REMOTE_WS_HEARTBEAT_SEC", 15))
     reconnect_sec = max(2, _env_int("REMOTE_WS_RECONNECT_SEC", 5))
     ping_interval = max(10, _env_int("REMOTE_WS_PING_INTERVAL_SEC", 20))
@@ -657,6 +710,7 @@ def _remote_ws_runner() -> None:
     while not _remote_ws_stop_event.is_set():
         def _on_open(app: Any) -> None:
             _remote_ws_set_status(connected=True, last_connect_ts=int(time.time()), last_error="")
+            _remote_ws_log("connected", ws_url=ws_url, client_id=_remote_ws_client_id())
             bind_host = (os.getenv("DESKTOP_WEB_HOST") or DEFAULT_HOST).strip() or DEFAULT_HOST
             bind_port = _env_int("DESKTOP_WEB_PORT", DEFAULT_PORT)
             desktop_base_url = (os.getenv("REMOTE_WS_PUBLIC_BASE_URL") or "").strip() or f"http://{bind_host}:{bind_port}"
@@ -684,9 +738,11 @@ def _remote_ws_runner() -> None:
 
         def _on_error(_: Any, err: Any) -> None:
             _remote_ws_set_status(last_error=str(err), connected=False)
+            _remote_ws_log("error", error=str(err))
 
         def _on_close(_: Any, __: Any, ___: Any) -> None:
             _remote_ws_set_status(connected=False)
+            _remote_ws_log("closed")
 
         app = websocket_client.WebSocketApp(
             ws_url,
@@ -700,20 +756,26 @@ def _remote_ws_runner() -> None:
             app.run_forever(ping_interval=ping_interval, ping_timeout=ping_timeout)
         except Exception as exc:
             _remote_ws_set_status(last_error=str(exc), connected=False)
+            _remote_ws_log("run_forever_exception", error=str(exc))
         if _remote_ws_stop_event.wait(reconnect_sec):
+            _remote_ws_log("runner_stopped")
             break
+        _remote_ws_log("reconnecting", wait_sec=reconnect_sec)
 
 
 def _start_remote_ws_if_needed() -> None:
     global _remote_ws_thread
     if not _remote_ws_enabled():
         _remote_ws_set_status(enabled=False)
+        _remote_ws_log("startup_skipped", reason="REMOTE_WS disabled")
         return
     if _remote_ws_thread and _remote_ws_thread.is_alive():
+        _remote_ws_log("startup_skipped", reason="thread already running")
         return
     _remote_ws_stop_event.clear()
     _remote_ws_thread = threading.Thread(target=_remote_ws_runner, daemon=True, name="remote-ws-client")
     _remote_ws_thread.start()
+    _remote_ws_log("startup_triggered")
 
 
 def _run_command(args: list[str], timeout: int = 120, env: dict[str, str] | None = None) -> tuple[int, str]:
@@ -1254,6 +1316,15 @@ def api_appium_ready() -> Any:
 @app.get("/api/remote_ws_status")
 def api_remote_ws_status() -> Any:
     return jsonify({"ok": True, "status": _remote_ws_status()})
+
+
+@app.get("/api/remote_ws_log")
+def api_remote_ws_log() -> Any:
+    try:
+        lines = max(1, min(int(request.args.get("lines", "200")), 2000))
+    except Exception:
+        lines = 200
+    return jsonify({"ok": True, "file": str(REMOTE_WS_LOG_FILE), "lines": _read_remote_ws_log_lines(lines)})
 
 
 def _auto_open_browser(url: str) -> None:

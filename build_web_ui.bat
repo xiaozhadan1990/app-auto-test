@@ -124,6 +124,12 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo [Step] Copying runtime env files...
+if exist "dist\%APP_NAME%" (
+    if exist ".env" copy /y ".env" "dist\%APP_NAME%\.env" >nul
+    if exist ".env.example" copy /y ".env.example" "dist\%APP_NAME%\.env.example" >nul
+)
+
 echo.
 echo ============================================================
 echo  Build completed
