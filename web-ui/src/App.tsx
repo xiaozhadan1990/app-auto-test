@@ -103,10 +103,12 @@ const phoneSvgMap = Object.fromEntries(
 );
 
 function normalizeKey(value?: string): string {
+  // 统一品牌键名，便于做静态资源映射匹配。
   return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function getBrandImageUrl(brand?: string): string | null {
+  // 根据品牌名返回对应的本地 SVG 图片地址。
   const key = normalizeKey(brand);
   if (!key) return null;
   if (phoneSvgMap[key]) return phoneSvgMap[key];
@@ -114,6 +116,7 @@ function getBrandImageUrl(brand?: string): string | null {
 }
 
 function renderBrand(brand?: string, imageHeight = 36): ReactNode {
+  // 优先渲染品牌图标，找不到图标时回退为文本。
   const imageUrl = getBrandImageUrl(brand);
   if (imageUrl) {
     return (
@@ -129,6 +132,7 @@ function renderBrand(brand?: string, imageHeight = 36): ReactNode {
 }
 
 function formatDeviceStatus(status?: string): string {
+  // 将 ADB 设备状态转换为界面展示文案。
   const s = (status || "").toLowerCase();
   if (s === "device") return "已连接";
   if (s === "offline") return "离线";
@@ -138,6 +142,7 @@ function formatDeviceStatus(status?: string): string {
 }
 
 function formatRunStatus(status?: string): string {
+  // 将任务运行状态转换为界面展示文案。
   const s = (status || "").toLowerCase();
   if (s === "running") return "运行中";
   if (s === "failed") return "失败";
@@ -148,6 +153,7 @@ function formatRunStatus(status?: string): string {
 }
 
 function formatExitCode(code?: number | null): string {
+  // 将进程退出码映射为易读结果文案。
   if (code === null || code === undefined) return "-";
   if (code === 0) return "成功";
   if (code === 1) return "失败";
@@ -155,6 +161,7 @@ function formatExitCode(code?: number | null): string {
 }
 
 function formatCaseStatus(status?: string): string {
+  // 将用例执行状态转换为界面展示文案。
   const s = (status || "").toLowerCase();
   if (s === "passed") return "通过";
   if (s === "failed") return "失败";
@@ -163,6 +170,7 @@ function formatCaseStatus(status?: string): string {
 }
 
 function hasReportWarning(task: TaskHistoryItem): boolean {
+  // 识别任务是否存在“执行成功但报告后处理告警”的情况。
   const status = (task.status || "").toLowerCase();
   if (status !== "success") return false;
   if ((task.allure_exit_code ?? 0) !== 0) return true;
@@ -171,6 +179,7 @@ function hasReportWarning(task: TaskHistoryItem): boolean {
 }
 
 async function apiRequest<T>(path: string, body?: unknown): Promise<T> {
+  // 统一封装 GET/POST 请求与错误处理逻辑。
   const resp = await fetch(path, {
     method: body === undefined ? "GET" : "POST",
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
@@ -183,6 +192,7 @@ async function apiRequest<T>(path: string, body?: unknown): Promise<T> {
 }
 
 function App() {
+  // 主页面组件：负责设备管理、任务执行、结果与报告展示。
   const [msgApi, contextHolder] = message.useMessage();
   const [activeTab, setActiveTab] = useState("devices");
   const [devices, setDevices] = useState<Device[]>([]);
@@ -238,6 +248,7 @@ function App() {
   }, [reportCases, reportCaseStatusFilter]);
 
   const refreshDeviceRuntime = async (deviceSerial: string) => {
+    // 刷新单个设备的实时任务状态并更新缓存。
     const res = await apiRequest<{ ok: boolean; device_status: DeviceRuntimeStatus }>(
       `/api/device_status/${encodeURIComponent(deviceSerial)}`
     );
@@ -249,6 +260,7 @@ function App() {
   };
 
   const refreshTaskHistory = async () => {
+    // 按当前筛选条件拉取任务历史，并同步可选报告任务。
     const params = new URLSearchParams();
     params.set("limit", "30");
     if (selectedDevice) params.set("device", selectedDevice);
@@ -268,6 +280,7 @@ function App() {
   };
 
   const refreshTaskReportData = async (taskId?: string) => {
+    // 拉取并更新任务报告摘要与用例明细。
     const targetTaskId = taskId || reportTaskId;
     if (!targetTaskId) {
       setReportSummary(undefined);
@@ -296,6 +309,7 @@ function App() {
   };
 
   const refreshDevices = async () => {
+    // 刷新设备列表，同时补齐每台设备的运行状态。
     setLogText("正在刷新设备...");
     const res = await apiRequest<{ ok: boolean; devices: Device[]; error?: string }>(
       "/api/list_devices",
@@ -319,6 +333,7 @@ function App() {
   };
 
   const refreshApps = async () => {
+    // 获取应用选项并校正当前选中项。
     const res = await apiRequest<AppOption[]>("/api/get_app_options");
     setApps(res || []);
     if (res?.length) {
@@ -327,6 +342,7 @@ function App() {
   };
 
   const refreshPackages = async (appKey?: string) => {
+    // 根据应用刷新可执行用例包，并维护执行队列选择状态。
     const targetApp = appKey || selectedApp;
     if (!targetApp) return;
     const res = await apiRequest<{ ok: boolean; packages: string[]; error?: string }>(
@@ -349,6 +365,7 @@ function App() {
   };
 
   const addSelectedCase = () => {
+    // 将当前选中的用例包加入待执行列表（避免重复）。
     if (!selectedPackage) return;
     if (executionPackages.includes(selectedPackage)) {
       msgApi.info("该用例已在待执行列表中");
@@ -361,6 +378,7 @@ function App() {
   };
 
   const addAllCases = () => {
+    // 批量将可选用例加入待执行列表，自动跳过重复项。
     let added = 0;
     let skipped = 0;
     const next = [...executionPackages];
@@ -378,6 +396,7 @@ function App() {
   };
 
   const removeSelectedCase = () => {
+    // 移除当前高亮选中的待执行用例。
     if (selectedExecutionIndex < 0 || selectedExecutionIndex >= executionPackages.length) return;
     const next = executionPackages.filter((_, idx) => idx !== selectedExecutionIndex);
     setExecutionPackages(next);
@@ -385,6 +404,7 @@ function App() {
   };
 
   const moveSelectedCase = (offset: number) => {
+    // 按给定偏移量调整待执行用例顺序。
     const from = selectedExecutionIndex;
     const to = from + offset;
     if (from < 0 || from >= executionPackages.length) return;
@@ -397,6 +417,7 @@ function App() {
   };
 
   const runTests = async () => {
+    // 校验执行前提并创建测试任务。
     try {
       const appium = await apiRequest<{ running: boolean; server_url?: string; error?: string }>(
         "/api/appium_ready"
@@ -458,6 +479,7 @@ function App() {
   };
 
   const stopCurrentTask = async () => {
+    // 请求后端停止当前设备上的任务，并刷新状态。
     if (!selectedDevice) return;
     const res = await apiRequest<ApiOk & { task_id?: string; status?: string }>(
       "/api/stop_task",
@@ -476,6 +498,7 @@ function App() {
   };
 
   const openReport = async () => {
+    // 打开最近一次生成的测试报告。
     const res = await apiRequest<ApiOk>("/api/open_report", {});
     if (!res.ok) {
       msgApi.error(res.error || "打开报告失败");
@@ -483,6 +506,7 @@ function App() {
   };
 
   const refreshSelectedDeviceStatus = async () => {
+    // 手动刷新当前选中设备状态，并同步当前任务 ID。
     if (!selectedDevice) {
       msgApi.warning("请先选择手机设备");
       return;
@@ -496,6 +520,7 @@ function App() {
   };
 
   const refreshCurrentTaskStatus = async () => {
+    // 拉取当前任务状态与日志输出，并在结束后做收尾刷新。
     if (!currentTaskId) {
       msgApi.warning("当前没有可刷新的任务");
       return;
@@ -533,6 +558,7 @@ function App() {
   };
 
   useEffect(() => {
+    // 页面首次加载：拉取启动依赖信息、应用、设备与历史数据。
     (async () => {
       try {
         const startup = await apiRequest<{ missing_dependencies?: string[] }>("/api/startup_info");
@@ -547,16 +573,19 @@ function App() {
   }, []);
 
   useEffect(() => {
+    // 应用切换后，自动刷新对应的用例包。
     if (selectedApp) {
       refreshPackages(selectedApp);
     }
   }, [selectedApp]);
 
   useEffect(() => {
+    // 设备或历史筛选变更后，自动刷新任务历史。
     refreshTaskHistory();
   }, [selectedDevice, historyStatusFilter]);
 
   useEffect(() => {
+    // 设备切换后，自动刷新设备状态并恢复运行中的任务上下文。
     if (!selectedDevice) return;
     refreshDeviceRuntime(selectedDevice).then((s) => {
       if (s?.status === "running" && s.task_id) {
@@ -566,11 +595,13 @@ function App() {
   }, [selectedDevice]);
 
   useEffect(() => {
+    // 有当前任务时，自动触发一次任务状态刷新。
     if (!currentTaskId) return;
     refreshCurrentTaskStatus();
   }, [currentTaskId, selectedDevice]);
 
   useEffect(() => {
+    // 报告任务切换后，自动加载对应报告数据。
     if (!reportTaskId) return;
     refreshTaskReportData(reportTaskId);
   }, [reportTaskId]);

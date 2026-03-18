@@ -52,6 +52,7 @@ DEFAULT_PORT = 17999
 
 
 def _load_local_env_file() -> None:
+    """从多个候选路径查找 .env 文件并将其中的键值对写入环境变量（已存在的变量不覆盖）。"""
     candidates: list[Path] = [
         RUNTIME_ROOT / ".env",
         RUNTIME_ROOT / "_internal" / ".env",
@@ -101,10 +102,12 @@ _device_running_task: dict[str, str] = {}
 
 
 def _is_frozen() -> bool:
+    """判断当前程序是否以 PyInstaller 打包形式运行。"""
     return bool(getattr(sys, "frozen", False))
 
 
 def _safe_display_path(path: Path) -> str:
+    """将绝对路径转换为相对于项目根目录的 POSIX 相对路径，便于日志显示；若转换失败则返回原始字符串。"""
     p = path.resolve()
     for base in (RUNTIME_ROOT, RESOURCE_ROOT, PROJECT_ROOT):
         try:
@@ -115,6 +118,7 @@ def _safe_display_path(path: Path) -> str:
 
 
 def _db_conn() -> sqlite3.Connection:
+    """创建并返回一个指向运行时 SQLite 数据库的连接，行工厂设置为 sqlite3.Row。"""
     REPORTS_ROOT.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(RUNTIME_DB_FILE)
     conn.row_factory = sqlite3.Row
@@ -122,6 +126,7 @@ def _db_conn() -> sqlite3.Connection:
 
 
 def _init_runtime_db() -> None:
+    """初始化运行时 SQLite 数据库，创建设备状态、任务历史、报告摘要和用例详情等表及索引。"""
     conn = _db_conn()
     try:
         conn.execute(
@@ -194,6 +199,7 @@ def _init_runtime_db() -> None:
 
 
 def _set_device_status(device_serial: str, status: str, task_id: str | None = None, message: str = "") -> None:
+    """将设备的运行状态（含关联任务 ID 和消息）写入或更新到数据库。"""
     conn = _db_conn()
     try:
         conn.execute(
@@ -214,6 +220,7 @@ def _set_device_status(device_serial: str, status: str, task_id: str | None = No
 
 
 def _get_device_status(device_serial: str) -> dict[str, Any]:
+    """从数据库查询指定设备的运行状态，若记录不存在则返回默认的 idle 状态字典。"""
     conn = _db_conn()
     try:
         row = conn.execute(
@@ -234,19 +241,23 @@ def _get_device_status(device_serial: str) -> dict[str, Any]:
 
 
 def _ensure_task_log_dir() -> None:
+    """确保任务日志目录存在，不存在时自动创建。"""
     TASK_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _task_report_paths(task_id: str) -> tuple[Path, Path]:
+    """返回指定任务的测试结果 JSON 文件路径和 HTML 报告文件路径的元组。"""
     base = TASK_REPORT_DIR / task_id
     return base / "test_results.json", base / "test_report.html"
 
 
 def _task_report_url(task_id: str) -> str:
+    """根据任务 ID 生成对应的 HTML 报告 API URL。"""
     return f"/api/task_report/{task_id}"
 
 
 def _report_asset_url(rel_path: str | None) -> str | None:
+    """将报告资源的相对路径转换为可通过 API 访问的 URL；路径为空时返回 None。"""
     value = (rel_path or "").strip()
     if not value:
         return None
@@ -254,11 +265,13 @@ def _report_asset_url(rel_path: str | None) -> str | None:
 
 
 def _task_has_report(task_id: str) -> bool:
+    """检查指定任务的 HTML 报告文件是否已存在于磁盘。"""
     _, report_file = _task_report_paths(task_id)
     return report_file.exists()
 
 
 def _task_has_report_data(task_id: str) -> bool:
+    """检查指定任务的报告摘要数据是否已持久化到数据库。"""
     conn = _db_conn()
     try:
         row = conn.execute("SELECT task_id FROM task_report_summary WHERE task_id=?", (task_id,)).fetchone()
@@ -268,6 +281,7 @@ def _task_has_report_data(task_id: str) -> bool:
 
 
 def _save_task_report_to_db(task_id: str, results_file: Path) -> bool:
+    """将测试结果 JSON 文件解析后写入数据库的报告摘要和用例详情表，成功返回 True。"""
     if not results_file.exists():
         return False
     try:
@@ -336,6 +350,7 @@ def _save_task_report_to_db(task_id: str, results_file: Path) -> bool:
 
 
 def _get_task_report_data(task_id: str) -> dict[str, Any] | None:
+    """从数据库读取指定任务的报告摘要和用例列表，并附加截图/视频的 URL；不存在时返回 None。"""
     conn = _db_conn()
     try:
         summary_row = conn.execute("SELECT * FROM task_report_summary WHERE task_id=?", (task_id,)).fetchone()
@@ -364,6 +379,7 @@ def _insert_task_history(
     test_packages: list[str],
     log_path: str,
 ) -> None:
+    """向任务运行历史表插入一条状态为 running 的新记录。"""
     conn = _db_conn()
     try:
         conn.execute(
@@ -387,6 +403,7 @@ def _update_task_history(
     error: str | None = None,
     allure_output: str | None = None,
 ) -> None:
+    """更新任务历史表中指定任务的最终状态、退出码、错误信息和报告输出。"""
     conn = _db_conn()
     try:
         conn.execute(
@@ -408,6 +425,7 @@ def _update_task_history(
 
 
 def _get_task_history(limit: int = 20, device: str | None = None, status: str | None = None) -> list[dict[str, Any]]:
+    """从数据库查询任务运行历史，支持按设备和状态过滤，并附加报告可用性信息。"""
     conn = _db_conn()
     try:
         if device and status:
@@ -462,6 +480,7 @@ def _get_task_history(limit: int = 20, device: str | None = None, status: str | 
 
 
 def _get_task_record(task_id: str) -> dict[str, Any] | None:
+    """按任务 ID 从数据库查询单条任务历史记录，不存在时返回 None。"""
     conn = _db_conn()
     try:
         row = conn.execute("SELECT * FROM task_run_history WHERE task_id=?", (task_id,)).fetchone()
@@ -471,6 +490,7 @@ def _get_task_record(task_id: str) -> dict[str, Any] | None:
 
 
 def _env_int(name: str, default: int) -> int:
+    """读取环境变量并解析为整数，解析失败或变量不存在时返回默认值。"""
     raw = (os.getenv(name) or "").strip()
     if not raw:
         return default
@@ -481,6 +501,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_bool(name: str, default: bool) -> bool:
+    """读取环境变量并解析为布尔值（支持 1/true/yes/on），解析失败或变量不存在时返回默认值。"""
     raw = (os.getenv(name) or "").strip().lower()
     if not raw:
         return default
@@ -506,6 +527,7 @@ _remote_ws_status_state: dict[str, Any] = {
 
 
 def _remote_ws_enabled() -> bool:
+    """判断远程 WebSocket 功能是否已启用（需配置 REMOTE_WS_URL 且未被显式禁用）。"""
     raw = (os.getenv("REMOTE_WS_ENABLED") or "").strip().lower()
     if raw in {"0", "false", "no", "off"}:
         return False
@@ -513,6 +535,7 @@ def _remote_ws_enabled() -> bool:
 
 
 def _remote_ws_client_id() -> str:
+    """返回远程 WebSocket 客户端唯一标识符，优先使用环境变量，否则以主机名和 PID 组合生成。"""
     raw = (os.getenv("REMOTE_WS_CLIENT_ID") or "").strip()
     if raw:
         return raw
@@ -521,16 +544,19 @@ def _remote_ws_client_id() -> str:
 
 
 def _remote_ws_set_status(**kwargs: Any) -> None:
+    """线程安全地更新远程 WebSocket 状态字典中的指定字段。"""
     with _remote_ws_lock:
         _remote_ws_status_state.update(kwargs)
 
 
 def _remote_ws_status() -> dict[str, Any]:
+    """返回远程 WebSocket 当前状态快照（线程安全副本）。"""
     with _remote_ws_lock:
         return dict(_remote_ws_status_state)
 
 
 def _remote_ws_log(event: str, **fields: Any) -> None:
+    """将远程 WebSocket 事件以 JSON 行格式追加写入本地日志文件。"""
     REPORTS_ROOT.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     payload = {"event": event, **fields}
@@ -546,6 +572,7 @@ def _remote_ws_log(event: str, **fields: Any) -> None:
 
 
 def _read_remote_ws_log_lines(max_lines: int = 200) -> list[str]:
+    """读取远程 WebSocket 日志最后 N 行，自动限制最大返回行数。"""
     if max_lines <= 0:
         max_lines = 1
     max_lines = min(max_lines, 2000)
@@ -561,6 +588,7 @@ def _read_remote_ws_log_lines(max_lines: int = 200) -> list[str]:
 
 
 def _remote_ws_send_json(payload: dict[str, Any]) -> bool:
+    """向远程 WebSocket 发送 JSON 消息，失败时更新状态并记录日志。"""
     global _remote_ws_app
     app = _remote_ws_app
     if app is None:
@@ -576,6 +604,7 @@ def _remote_ws_send_json(payload: dict[str, Any]) -> bool:
 
 
 def _remote_ws_heartbeat_payload() -> dict[str, Any]:
+    """构造心跳包，携带客户端状态、运行任务数量和可访问地址。"""
     with _tasks_lock:
         running_task_ids = list(_device_running_task.values())
     bind_host = (os.getenv("DESKTOP_WEB_HOST") or DEFAULT_HOST).strip() or DEFAULT_HOST
@@ -595,6 +624,7 @@ def _remote_ws_heartbeat_payload() -> dict[str, Any]:
 
 
 def _remote_ws_exec_command(action: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """分发并执行远程指令，将动作映射到本地能力函数。"""
     if action == "list_devices":
         return _list_devices()
     if action == "list_test_packages":
@@ -640,6 +670,7 @@ def _remote_ws_exec_command(action: str, payload: dict[str, Any]) -> dict[str, A
 
 
 def _remote_ws_handle_message(raw: str) -> None:
+    """解析并处理远程消息，支持命令执行与 ACK 更新。"""
     _remote_ws_set_status(last_message_ts=int(time.time()))
     try:
         msg = json.loads(raw)
@@ -681,6 +712,7 @@ def _remote_ws_handle_message(raw: str) -> None:
 
 
 def _remote_ws_heartbeat_loop(app: Any, interval_sec: int) -> None:
+    """心跳线程：在连接存活期间按周期发送心跳消息。"""
     while not _remote_ws_stop_event.is_set():
         if _remote_ws_app is not app:
             return
@@ -690,6 +722,7 @@ def _remote_ws_heartbeat_loop(app: Any, interval_sec: int) -> None:
 
 
 def _remote_ws_runner() -> None:
+    """远程 WebSocket 主循环：建立连接、注册、重连与异常处理。"""
     global _remote_ws_app
     if websocket_client is None:
         _remote_ws_set_status(last_error="websocket-client 未安装", enabled=False)
@@ -709,6 +742,7 @@ def _remote_ws_runner() -> None:
 
     while not _remote_ws_stop_event.is_set():
         def _on_open(app: Any) -> None:
+            """连接建立回调：更新状态、发送注册消息并启动心跳线程。"""
             _remote_ws_set_status(connected=True, last_connect_ts=int(time.time()), last_error="")
             _remote_ws_log("connected", ws_url=ws_url, client_id=_remote_ws_client_id())
             bind_host = (os.getenv("DESKTOP_WEB_HOST") or DEFAULT_HOST).strip() or DEFAULT_HOST
@@ -734,13 +768,16 @@ def _remote_ws_runner() -> None:
             ).start()
 
         def _on_message(_: Any, message: str) -> None:
+            """消息回调：将服务端消息交给统一处理器。"""
             _remote_ws_handle_message(message)
 
         def _on_error(_: Any, err: Any) -> None:
+            """错误回调：记录错误并将连接状态置为断开。"""
             _remote_ws_set_status(last_error=str(err), connected=False)
             _remote_ws_log("error", error=str(err))
 
         def _on_close(_: Any, __: Any, ___: Any) -> None:
+            """关闭回调：标记连接断开并写入关闭日志。"""
             _remote_ws_set_status(connected=False)
             _remote_ws_log("closed")
 
@@ -764,6 +801,7 @@ def _remote_ws_runner() -> None:
 
 
 def _start_remote_ws_if_needed() -> None:
+    """按配置启动远程 WebSocket 后台线程，避免重复启动。"""
     global _remote_ws_thread
     if not _remote_ws_enabled():
         _remote_ws_set_status(enabled=False)
@@ -779,6 +817,7 @@ def _start_remote_ws_if_needed() -> None:
 
 
 def _run_command(args: list[str], timeout: int = 120, env: dict[str, str] | None = None) -> tuple[int, str]:
+    """执行外部命令并返回退出码及合并后的标准输出/错误输出。"""
     try:
         result = subprocess.run(
             args,
@@ -799,15 +838,18 @@ def _run_command(args: list[str], timeout: int = 120, env: dict[str, str] | None
 
 
 def _adb(serial: str, shell_args: list[str], timeout: int = 30) -> tuple[int, str]:
+    """在指定设备上执行 adb shell 子命令。"""
     return _run_command([ADB_BIN, "-s", serial, "shell", *shell_args], timeout=timeout)
 
 
 def _get_prop(serial: str, prop: str) -> str:
+    """读取设备系统属性，失败时返回 '-'。"""
     code, out = _adb(serial, ["getprop", prop])
     return out.strip() or "-" if code == 0 else "-"
 
 
 def _get_app_version(serial: str, package_name: str) -> str:
+    """通过 dumpsys package 读取应用版本号，未安装时返回提示文案。"""
     code, out = _adb(serial, ["dumpsys", "package", package_name], timeout=40)
     if code != 0:
         return "未安装"
@@ -816,6 +858,7 @@ def _get_app_version(serial: str, package_name: str) -> str:
 
 
 def _list_devices() -> dict[str, Any]:
+    """列举 ADB 设备并补充品牌、型号、系统及应用版本信息。"""
     code, out = _run_command([ADB_BIN, "devices"], timeout=20)
     if code != 0:
         return {"ok": False, "devices": [], "error": out or "无法执行 adb devices"}
@@ -854,6 +897,7 @@ def _list_devices() -> dict[str, Any]:
 
 
 def _list_test_packages(app_key: str) -> list[str]:
+    """根据应用键返回可执行测试包列表（目录+测试文件）。"""
     default_pkg = APP_CONFIG.get(app_key, {}).get("default_test_package", "tests")
     package_path = (PROJECT_ROOT / default_pkg).resolve()
     packages = [default_pkg]
@@ -864,6 +908,7 @@ def _list_test_packages(app_key: str) -> list[str]:
 
 
 def _startup_info() -> dict[str, Any]:
+    """返回启动前依赖检查结果（当前主要检查 adb）。"""
     missing: list[str] = []
     if shutil.which("adb") is None:
         missing.append("adb")
@@ -871,6 +916,7 @@ def _startup_info() -> dict[str, Any]:
 
 
 def _appium_ready() -> dict[str, Any]:
+    """探测 Appium 服务状态并返回可用性结果。"""
     server_url = (os.getenv("APPIUM_SERVER_URL", "http://127.0.0.1:4723") or "").strip().rstrip("/")
     if not server_url:
         return {"ok": True, "running": False, "server_url": "", "error": "APPIUM_SERVER_URL 为空"}
@@ -890,6 +936,7 @@ def _appium_ready() -> dict[str, Any]:
 
 
 def _run_tests(payload: dict[str, Any]) -> dict[str, Any]:
+    """创建并启动测试任务，异步监控执行与报告后处理。"""
     device = (payload.get("device") or "").strip()
     app_key = (payload.get("app_key") or "").strip()
     raw_packages = payload.get("test_packages")
@@ -984,6 +1031,7 @@ def _run_tests(payload: dict[str, Any]) -> dict[str, Any]:
     _set_device_status(device, "running", task_id=task_id, message="任务执行中")
 
     def _watch_task() -> None:
+        """后台监控测试进程，写日志并更新任务/报告状态。"""
         exit_code: int | None = None
         try:
             with log_path.open("w", encoding="utf-8") as fp:
@@ -1071,6 +1119,7 @@ def _run_tests(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _task_status(task_id: str) -> dict[str, Any]:
+    """查询任务实时状态（内存）或历史状态（数据库），并附带日志片段。"""
     with _tasks_lock:
         info = _tasks.get(task_id)
         if info:
@@ -1117,6 +1166,7 @@ def _task_status(task_id: str) -> dict[str, Any]:
 
 
 def _stop_task(payload: dict[str, Any]) -> dict[str, Any]:
+    """停止指定任务进程并同步更新内存与数据库状态。"""
     task_id = str(payload.get("task_id") or "").strip()
     device = str(payload.get("device") or "").strip()
 
@@ -1158,6 +1208,7 @@ def _stop_task(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _open_report() -> dict[str, Any]:
+    """打开最新 HTML 测试报告，必要时先尝试生成。"""
     if not REPORT_HTML_FILE.exists():
         from report_generator import generate_report
 
@@ -1171,6 +1222,7 @@ def _open_report() -> dict[str, Any]:
 
 
 def _get_free_port(host: str, preferred_port: int) -> int:
+    """优先返回期望端口；若被占用则申请一个系统空闲端口。"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.2)
         if sock.connect_ex((host, preferred_port)) != 0:
@@ -1185,27 +1237,32 @@ app = Flask(__name__)
 
 @app.get("/")
 def index() -> Any:
+    """返回前端入口页面。"""
     return send_file(UI_HTML_FILE)
 
 
 @app.get("/assets/<path:filename>")
 def ui_assets(filename: str) -> Any:
+    """提供前端静态资源文件。"""
     return send_from_directory(UI_ASSETS_DIR, filename)
 
 
 @app.post("/api/list_devices")
 def api_list_devices() -> Any:
+    """API：返回当前 ADB 设备列表。"""
     return jsonify(_list_devices())
 
 
 @app.get("/api/get_app_options")
 def api_get_app_options() -> Any:
+    """API：返回可选应用配置列表。"""
     apps = [{"key": k, "label": v["label"]} for k, v in APP_CONFIG.items()]
     return jsonify(apps)
 
 
 @app.post("/api/list_test_packages")
 def api_list_test_packages() -> Any:
+    """API：返回指定应用的可执行测试包。"""
     payload = request.get_json(silent=True) or {}
     app_key = payload.get("app_key") or "lysora"
     return jsonify({"ok": True, "packages": _list_test_packages(app_key)})
@@ -1213,17 +1270,20 @@ def api_list_test_packages() -> Any:
 
 @app.post("/api/run_tests")
 def api_run_tests() -> Any:
+    """API：创建并启动测试任务。"""
     payload = request.get_json(silent=True) or {}
     return jsonify(_run_tests(payload))
 
 
 @app.get("/api/task_status/<task_id>")
 def api_task_status(task_id: str) -> Any:
+    """API：查询指定任务状态。"""
     return jsonify(_task_status(task_id))
 
 
 @app.get("/api/task_history")
 def api_task_history() -> Any:
+    """API：按条件查询任务历史列表。"""
     limit_raw = request.args.get("limit", "20")
     device = (request.args.get("device") or "").strip() or None
     status = (request.args.get("status") or "").strip().lower() or None
@@ -1238,6 +1298,7 @@ def api_task_history() -> Any:
 
 @app.get("/api/task_log/<task_id>")
 def api_task_log(task_id: str) -> Any:
+    """API：下载指定任务日志文件。"""
     record = _get_task_record(task_id)
     if not record:
         return jsonify({"ok": False, "error": f"任务不存在: {task_id}"}), 404
@@ -1249,6 +1310,7 @@ def api_task_log(task_id: str) -> Any:
 
 @app.get("/api/task_report/<task_id>")
 def api_task_report(task_id: str) -> Any:
+    """API：返回指定任务的 HTML 报告。"""
     _, report_file = _task_report_paths(task_id)
     if not report_file.exists():
         return jsonify({"ok": False, "error": f"任务报告不存在: {task_id}"}), 404
@@ -1257,6 +1319,7 @@ def api_task_report(task_id: str) -> Any:
 
 @app.get("/api/task_report_data/<task_id>")
 def api_task_report_data(task_id: str) -> Any:
+    """API：返回指定任务的报告摘要与用例详情。"""
     data = _get_task_report_data(task_id)
     if not data:
         return jsonify({"ok": False, "error": f"任务报告数据不存在: {task_id}"}), 404
@@ -1265,6 +1328,7 @@ def api_task_report_data(task_id: str) -> Any:
 
 @app.get("/api/report_asset")
 def api_report_asset() -> Any:
+    """API：按安全白名单规则读取报告相关静态资源（截图/视频等）。"""
     rel_path = (request.args.get("path") or "").strip()
     if not rel_path:
         return jsonify({"ok": False, "error": "path 不能为空"}), 400
@@ -1291,37 +1355,44 @@ def api_report_asset() -> Any:
 
 @app.post("/api/stop_task")
 def api_stop_task() -> Any:
+    """API：停止运行中的任务。"""
     payload = request.get_json(silent=True) or {}
     return jsonify(_stop_task(payload))
 
 
 @app.get("/api/device_status/<device_serial>")
 def api_device_status(device_serial: str) -> Any:
+    """API：查询指定设备的运行状态。"""
     return jsonify({"ok": True, "device_status": _get_device_status(device_serial)})
 
 
 @app.post("/api/open_report")
 def api_open_report() -> Any:
+    """API：打开最近一次报告。"""
     return jsonify(_open_report())
 
 
 @app.get("/api/startup_info")
 def api_startup_info() -> Any:
+    """API：返回启动依赖检查信息。"""
     return jsonify(_startup_info())
 
 
 @app.get("/api/appium_ready")
 def api_appium_ready() -> Any:
+    """API：返回 Appium 服务可用性。"""
     return jsonify(_appium_ready())
 
 
 @app.get("/api/remote_ws_status")
 def api_remote_ws_status() -> Any:
+    """API：返回远程 WebSocket 连接状态。"""
     return jsonify({"ok": True, "status": _remote_ws_status()})
 
 
 @app.get("/api/remote_ws_log")
 def api_remote_ws_log() -> Any:
+    """API：返回远程 WebSocket 日志末尾若干行。"""
     try:
         lines = max(1, min(int(request.args.get("lines", "200")), 2000))
     except Exception:
@@ -1330,11 +1401,13 @@ def api_remote_ws_log() -> Any:
 
 
 def _auto_open_browser(url: str) -> None:
+    """延迟短暂时间后自动打开默认浏览器。"""
     time.sleep(0.8)
     webbrowser.open(url)
 
 
 def main() -> None:
+    """程序入口：支持 pytest 子进程模式与 Flask 服务启动模式。"""
     if len(sys.argv) > 1 and sys.argv[1] == "--run-pytest":
         import pytest
 
