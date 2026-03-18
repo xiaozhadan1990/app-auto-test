@@ -1128,9 +1128,11 @@ def _stop_task(payload: dict[str, Any]) -> dict[str, Any]:
         info = _tasks.get(task_id)
         if not info:
             return {"ok": False, "error": f"任务不存在: {task_id}"}
-        process: subprocess.Popen[str] = info.get("process")
+        process: subprocess.Popen[str] | None = info.get("process")
         dev = str(info.get("device") or "")
 
+    if process is None:
+        return {"ok": False, "error": "任务进程不存在"}
     if process.poll() is not None:
         _set_device_status(dev, "idle", task_id=task_id, message="任务已结束")
         return {"ok": True, "task_id": task_id, "status": "finished"}
