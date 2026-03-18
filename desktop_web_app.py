@@ -15,6 +15,7 @@ import urllib.request
 import webbrowser
 import json
 import platform
+import mimetypes
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -261,7 +262,141 @@ def _report_asset_url(rel_path: str | None) -> str | None:
     value = (rel_path or "").strip()
     if not value:
         return None
+    if value.startswith(("http://", "https://")):
+        return value
     return f"/api/report_asset?path={urllib.parse.quote(value)}"
+
+
+def _remote_report_upload_url() -> str:
+    """返回远程报告媒体上传端点；为空表示未启用主动上传。"""
+    return (os.getenv("REMOTE_REPORT_UPLOAD_URL") or "").strip()
+
+
+def _remote_report_upload_token() -> str:
+    """返回远程报告媒体上传鉴权令牌（可选）。"""
+    return (os.getenv("REMOTE_REPORT_UPLOAD_TOKEN") or "").strip()
+
+
+def _remote_report_upload_timeout_sec() -> int:
+    """返回远程报告媒体上传请求超时时间（秒）。"""
+    return max(2, _env_int("REMOTE_REPORT_UPLOAD_TIMEOUT_SEC", 20))
+
+
+def _resolve_report_asset_path(rel_path: str) -> Path | None:
+    """将报告媒体相对路径解析为本地绝对路径，找不到时返回 None。"""
+    value = rel_path.strip()
+    if not value:
+        return None
+    if value.startswith(("http://", "https://")):
+        return None
+    allowed_roots = [REPORTS_ROOT.resolve(), (RESOURCE_ROOT / "reports").resolve()]
+    candidate_roots = [RUNTIME_ROOT.resolve(), RESOURCE_ROOT.resolve(), PROJECT_ROOT.resolve()]
+    for root in candidate_roots:
+        candidate = (root / value).resolve()
+        try:
+            if any(candidate.is_relative_to(base) for base in allowed_roots):
+                if candidate.exists():
+                    return candidate
+        except Exception:
+            continue
+    return None
+
+
+def _upload_report_asset(
+    task_id: str,
+    case_index: int,
+    asset_type: str,
+    rel_path: str,
+) -> str | None:
+    """主动上传报告媒体到远端服务，成功返回可访问 URL。"""
+    upload_url = _remote_report_upload_url()
+    if not upload_url:
+        return None
+    local_file = _resolve_report_asset_path(rel_path)
+    if local_file is None:
+        return None
+
+    boundary = f"----DesktopReportBoundary{uuid4().hex}"
+    mime_type = mimetypes.guess_type(local_file.name)[0] or "application/octet-stream"
+    token = _remote_report_upload_token()
+    fields: list[tuple[str, str]] = [
+        ("task_id", task_id),
+        ("case_index", str(case_index)),
+        ("asset_type", asset_type),
+        ("client_id", _remote_ws_client_id()),
+        ("file_name", local_file.name),
+    ]
+
+    body = bytearray()
+    for key, value in fields:
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode("utf-8"))
+        body.extend((value or "").encode("utf-8"))
+        body.extend(b"\r\n")
+    body.extend(f"--{boundary}\r\n".encode("utf-8"))
+    body.extend(
+        (
+            f'Content-Disposition: form-data; name="file"; filename="{local_file.name}"\r\n'
+            f"Content-Type: {mime_type}\r\n\r\n"
+        ).encode("utf-8")
+    )
+    body.extend(local_file.read_bytes())
+    body.extend(b"\r\n")
+    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+
+    headers = {
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "Accept": "application/json",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(upload_url, data=bytes(body), headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=_remote_report_upload_timeout_sec()) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+            payload = json.loads(raw) if raw.strip() else {}
+    except Exception as exc:
+        _remote_ws_log(
+            "report_asset_upload_failed",
+            task_id=task_id,
+            case_index=case_index,
+            asset_type=asset_type,
+            error=str(exc),
+            source_path=rel_path,
+        )
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    url: Any = payload.get("url") or payload.get("asset_url") or payload.get("file_url")
+    if not url:
+        data_field = payload.get("data")
+        if isinstance(data_field, dict):
+            url = data_field.get("url") or data_field.get("asset_url") or data_field.get("file_url")
+        elif isinstance(data_field, str):
+            url = data_field
+    if isinstance(url, str) and url.strip():
+        return url.strip()
+    return None
+
+
+def _rewrite_report_assets_for_remote(task_id: str, tests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """尝试将测试结果中的截图/视频路径替换为远端上传后的 URL。"""
+    upload_url = _remote_report_upload_url()
+    if not upload_url:
+        return tests
+    for idx, case in enumerate(tests, start=1):
+        screenshot = str(case.get("screenshot") or "").strip()
+        if screenshot and not screenshot.startswith(("http://", "https://")):
+            uploaded = _upload_report_asset(task_id, idx, "image", screenshot)
+            if uploaded:
+                case["screenshot"] = uploaded
+        video = str(case.get("video") or "").strip()
+        if video and not video.startswith(("http://", "https://")):
+            uploaded = _upload_report_asset(task_id, idx, "video", video)
+            if uploaded:
+                case["video"] = uploaded
+    return tests
 
 
 def _task_has_report(task_id: str) -> bool:
@@ -292,6 +427,8 @@ def _save_task_report_to_db(task_id: str, results_file: Path) -> bool:
     tests = data.get("tests", [])
     if not isinstance(tests, list):
         tests = []
+    normalized_tests: list[dict[str, Any]] = [dict(t) for t in tests if isinstance(t, dict)]
+    tests = _rewrite_report_assets_for_remote(task_id, normalized_tests)
     total = int(data.get("total", len(tests)) or 0)
     passed = int(data.get("passed", 0) or 0)
     failed = int(data.get("failed", 0) or 0)
