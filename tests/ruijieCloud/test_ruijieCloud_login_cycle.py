@@ -250,6 +250,7 @@ def _run_ruijie_cloud_login_logout_cycle(driver, account: Account) -> None:
 
 @pytest.mark.smoke
 @pytest.mark.ruijieCloud
+@pytest.mark.case_name("RuijieCloud 登录登出循环（冒烟）")
 def test_ruijie_cloud_login_logout_cycle_smoke(driver):
     """冒烟：验证 la_cloud 账号可完成 RuijieCloud 登录/登出。"""
     _run_ruijie_cloud_login_logout_cycle(driver, SMOKE_ACCOUNT)
@@ -257,6 +258,7 @@ def test_ruijie_cloud_login_logout_cycle_smoke(driver):
 
 @pytest.mark.full
 @pytest.mark.ruijieCloud
+@pytest.mark.case_name("RuijieCloud 登录登出循环（全量）")
 @pytest.mark.parametrize("account", ACCOUNTS, ids=[a.name for a in ACCOUNTS])
 def test_ruijie_cloud_login_logout_cycle(driver, account: Account):
     """全量：验证各朵云账号均可完成 RuijieCloud 登录/登出。"""

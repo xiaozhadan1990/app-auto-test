@@ -97,6 +97,14 @@ APP_CONFIG: dict[str, dict[str, str]] = {
     },
 }
 
+# 可按需扩展：测试文件路径 -> 中文展示名
+TEST_PACKAGE_LABELS: dict[str, str] = {
+    "tests/lysora/test_lysora_home_logo.py": "Lysora-首页 Logo 检查",
+    "tests/lysora/test_lysora_login_my_tab.py": "Lysora-登录后我的页检查",
+    "tests/lysora/test_lysora_toolkit_ping.py": "Lysora-ToolKit Ping 检查",
+    "tests/ruijieCloud/test_ruijieCloud_login_cycle.py": "RuijieCloud-登录循环检查",
+}
+
 _tasks_lock = threading.Lock()
 _tasks: dict[str, dict[str, Any]] = {}
 _device_running_task: dict[str, str] = {}
@@ -1033,14 +1041,25 @@ def _list_devices() -> dict[str, Any]:
     return {"ok": True, "devices": devices}
 
 
-def _list_test_packages(app_key: str) -> list[str]:
-    """根据应用键返回可执行测试包列表（目录+测试文件）。"""
+def _fallback_package_label(package_path: str) -> str:
+    """为未配置映射的测试文件生成中文兜底展示名。"""
+    name = Path(package_path).stem
+    if name.startswith("test_"):
+        name = name[5:]
+    pretty = name.replace("_", " ").strip() or package_path
+    return f"测试文件-{pretty}"
+
+
+def _list_test_packages(app_key: str) -> list[dict[str, str]]:
+    """根据应用键返回可执行测试包列表（value 用于执行，label 用于中文显示）。"""
     default_pkg = APP_CONFIG.get(app_key, {}).get("default_test_package", "tests")
     package_path = (PROJECT_ROOT / default_pkg).resolve()
-    packages = [default_pkg]
+    packages: list[dict[str, str]] = [{"value": default_pkg, "label": "该应用全部用例"}]
     if package_path.exists():
         for f in sorted(package_path.glob("test_*.py")):
-            packages.append(f.relative_to(PROJECT_ROOT).as_posix())
+            rel_path = f.relative_to(PROJECT_ROOT).as_posix()
+            label = TEST_PACKAGE_LABELS.get(rel_path, _fallback_package_label(rel_path))
+            packages.append({"value": rel_path, "label": label})
     return packages
 
 
@@ -1402,7 +1421,15 @@ def api_list_test_packages() -> Any:
     """API：返回指定应用的可执行测试包。"""
     payload = request.get_json(silent=True) or {}
     app_key = payload.get("app_key") or "lysora"
-    return jsonify({"ok": True, "packages": _list_test_packages(app_key)})
+    packages = _list_test_packages(app_key)
+    return jsonify(
+        {
+            "ok": True,
+            "packages": packages,
+            # 兼容旧前端：保留纯字符串路径列表。
+            "package_paths": [item["value"] for item in packages],
+        }
+    )
 
 
 @app.post("/api/run_tests")

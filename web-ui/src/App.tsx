@@ -30,6 +30,59 @@ type AppOption = {
   label: string;
 };
 
+type TestPackageOption = {
+  value: string;
+  label: string;
+};
+
+function normalizePackageValue(input: unknown): string | undefined {
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    return trimmed || undefined;
+  }
+  if (input && typeof input === "object") {
+    const raw = (input as { value?: unknown }).value;
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      return trimmed || undefined;
+    }
+  }
+  return undefined;
+}
+
+function normalizePackageQueue(input: unknown[]): string[] {
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (const item of input) {
+    const value = normalizePackageValue(item);
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    list.push(value);
+  }
+  return list;
+}
+
+function fallbackPackageLabel(packageValue: string): string {
+  const normalized = packageValue.replace(/\\/g, "/");
+  if (!normalized.endsWith(".py")) {
+    return normalized;
+  }
+  const segments = normalized.split("/");
+  const fileName = segments[segments.length - 1] || normalized;
+  const appKey = (segments[segments.length - 2] || "").toLowerCase();
+  const appName =
+    appKey === "lysora" ? "Lysora" : appKey === "ruijiecloud" ? "RuijieCloud" : "测试";
+  const stem = fileName.replace(/\.py$/i, "").replace(/^test_/i, "");
+  const readable = stem.replace(/_/g, " ").trim() || fileName;
+  return `${appName}-${readable}`;
+}
+
+function resolvePackageLabel(input: unknown, labelMap: Record<string, string>): string {
+  const value = normalizePackageValue(input);
+  if (!value) return "未知用例";
+  return labelMap[value] || fallbackPackageLabel(value);
+}
+
 type ApiOk = {
   ok: boolean;
   error?: string;
@@ -197,7 +250,7 @@ function App() {
   const [activeTab, setActiveTab] = useState("devices");
   const [devices, setDevices] = useState<Device[]>([]);
   const [apps, setApps] = useState<AppOption[]>([]);
-  const [packages, setPackages] = useState<string[]>([]);
+  const [packages, setPackages] = useState<TestPackageOption[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<string>();
   const [selectedApp, setSelectedApp] = useState<string>();
   const [selectedPackage, setSelectedPackage] = useState<string>();
@@ -246,6 +299,16 @@ function App() {
     if (reportCaseStatusFilter === "all") return reportCases;
     return reportCases.filter((c) => (c.status || "").toLowerCase() === reportCaseStatusFilter);
   }, [reportCases, reportCaseStatusFilter]);
+  const packageLabelMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const item of packages) {
+      const value = normalizePackageValue(item.value);
+      if (!value) continue;
+      const label = (item.label || "").trim();
+      map[value] = label || fallbackPackageLabel(value);
+    }
+    return map;
+  }, [packages]);
 
   const refreshDeviceRuntime = async (deviceSerial: string) => {
     // 刷新单个设备的实时任务状态并更新缓存。
@@ -345,7 +408,12 @@ function App() {
     // 根据应用刷新可执行用例包，并维护执行队列选择状态。
     const targetApp = appKey || selectedApp;
     if (!targetApp) return;
-    const res = await apiRequest<{ ok: boolean; packages: string[]; error?: string }>(
+    const res = await apiRequest<{
+      ok: boolean;
+      packages: Array<string | TestPackageOption>;
+      package_paths?: string[];
+      error?: string;
+    }>(
       "/api/list_test_packages",
       { app_key: targetApp }
     );
@@ -353,12 +421,27 @@ function App() {
       setLogText(`加载用例包失败:\n${res.error || "unknown error"}`);
       return;
     }
-    const list = res.packages || [];
+    const rawList = Array.isArray(res.packages) ? res.packages : [];
+    const list: TestPackageOption[] = rawList
+      .map((entry) => {
+        if (typeof entry === "string") {
+          return { value: entry, label: entry };
+        }
+        const value = String(entry?.value || "").trim();
+        if (!value) return null;
+        const label = String(entry?.label || value).trim() || value;
+        return { value, label };
+      })
+      .filter((item): item is TestPackageOption => Boolean(item));
     setPackages(list);
-    setSelectedPackage((old) => old && list.includes(old) ? old : list[0]);
+    const values = list.map((item) => item.value);
+    setSelectedPackage((old) => {
+      const normalized = normalizePackageValue(old);
+      return normalized && values.includes(normalized) ? normalized : values[0];
+    });
     setExecutionPackages((old) => {
-      const filtered = old.filter((p) => list.includes(p));
-      return filtered.length ? filtered : (list[0] ? [list[0]] : []);
+      const filtered = normalizePackageQueue(old).filter((p) => values.includes(p));
+      return filtered.length ? filtered : (values[0] ? [values[0]] : []);
     });
     setSelectedExecutionIndex((old) => (old >= 0 ? old : (list.length ? 0 : -1)));
     setLogText("用例包已刷新。");
@@ -366,13 +449,14 @@ function App() {
 
   const addSelectedCase = () => {
     // 将当前选中的用例包加入待执行列表（避免重复）。
-    if (!selectedPackage) return;
-    if (executionPackages.includes(selectedPackage)) {
+    const selectedValue = normalizePackageValue(selectedPackage);
+    if (!selectedValue) return;
+    if (executionPackages.includes(selectedValue)) {
       msgApi.info("该用例已在待执行列表中");
-      setSelectedExecutionIndex(executionPackages.indexOf(selectedPackage));
+      setSelectedExecutionIndex(executionPackages.indexOf(selectedValue));
       return;
     }
-    const next = [...executionPackages, selectedPackage];
+    const next = normalizePackageQueue([...executionPackages, selectedValue]);
     setExecutionPackages(next);
     setSelectedExecutionIndex(next.length - 1);
   };
@@ -381,12 +465,12 @@ function App() {
     // 批量将可选用例加入待执行列表，自动跳过重复项。
     let added = 0;
     let skipped = 0;
-    const next = [...executionPackages];
+    const next = normalizePackageQueue(executionPackages);
     for (const p of packages) {
-      if (next.includes(p)) {
+      if (next.includes(p.value)) {
         skipped += 1;
       } else {
-        next.push(p);
+        next.push(p.value);
         added += 1;
       }
     }
@@ -399,7 +483,7 @@ function App() {
     // 移除当前高亮选中的待执行用例。
     if (selectedExecutionIndex < 0 || selectedExecutionIndex >= executionPackages.length) return;
     const next = executionPackages.filter((_, idx) => idx !== selectedExecutionIndex);
-    setExecutionPackages(next);
+    setExecutionPackages(normalizePackageQueue(next));
     setSelectedExecutionIndex(Math.min(selectedExecutionIndex, next.length - 1));
   };
 
@@ -409,10 +493,10 @@ function App() {
     const to = from + offset;
     if (from < 0 || from >= executionPackages.length) return;
     if (to < 0 || to >= executionPackages.length) return;
-    const next = [...executionPackages];
+    const next = normalizePackageQueue(executionPackages);
     const [item] = next.splice(from, 1);
     next.splice(to, 0, item);
-    setExecutionPackages(next);
+    setExecutionPackages(normalizePackageQueue(next));
     setSelectedExecutionIndex(to);
   };
 
@@ -695,8 +779,8 @@ function App() {
               <Select
                 style={{ width: "100%" }}
                 value={selectedPackage}
-                onChange={setSelectedPackage}
-                options={packages.map((p) => ({ value: p, label: p }))}
+                onChange={(value) => setSelectedPackage(normalizePackageValue(value))}
+                options={packages}
               />
             </Col>
             <Col span={6}>
@@ -707,8 +791,8 @@ function App() {
                 onChange={setSuite}
                 options={[
                   { value: "all", label: "全部" },
-                  { value: "smoke", label: "smoke" },
-                  { value: "full", label: "full" },
+                  { value: "smoke", label: "冒烟测试" },
+                  { value: "full", label: "全量测试" },
                 ]}
               />
             </Col>
@@ -778,7 +862,7 @@ function App() {
                     background: selectedExecutionIndex === idx ? "#e8f0fe" : undefined,
                   }}
                 >
-                  {idx + 1}. {item}
+                  {idx + 1}. {resolvePackageLabel(item, packageLabelMap)}
                 </List.Item>
               )}
             />

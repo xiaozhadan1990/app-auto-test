@@ -342,6 +342,7 @@ def _back_to_toolkit_page(driver) -> None:
 @pytest.mark.smoke
 @pytest.mark.full
 @pytest.mark.lysora
+@pytest.mark.case_name("Lysora ToolKit Ping 域名执行与结束检查")
 def test_lysora_toolkit_ping_domain_and_end(driver):
     """验证 ToolKit Ping：输入域名执行 Ping，并可点击 End 结束。"""
     lysora_package = os.getenv("LYSORA_APP_PACKAGE", "com.lysora.lyapp")

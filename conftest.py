@@ -86,6 +86,17 @@ _test_results: list[dict] = []        # populated by pytest_runtest_logreport
 _test_artifacts: dict[str, dict] = {}  # nodeid -> {screenshot, video}
 
 
+def _resolve_case_name(item: pytest.Item, nodeid: str) -> str:
+    marker = item.get_closest_marker("case_name")
+    if marker and marker.args:
+        display_name = str(marker.args[0])
+        if "[" in nodeid and nodeid.endswith("]"):
+            param_suffix = nodeid.rsplit("[", 1)[-1]
+            display_name = f"{display_name}[{param_suffix}"
+        return display_name
+    return nodeid.split("::")[-1] if "::" in nodeid else nodeid
+
+
 @pytest.fixture(scope="session", autouse=True)
 def ensure_report_dirs() -> None:
     (_PROJECT_ROOT / "reports").mkdir(parents=True, exist_ok=True)
@@ -147,6 +158,7 @@ def pytest_runtest_makereport(item, call):
     report = outcome.get_result()
 
     if report.when == "call":
+        setattr(report, "case_name", _resolve_case_name(item, item.nodeid))
         driver = item.funcargs.get("driver")
         if driver:
             file_name = f"{item.name}_{report.outcome}.png"
@@ -175,7 +187,7 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
     status = "passed" if report.passed else ("failed" if report.failed else "skipped")
     _test_results.append({
         "nodeid": nodeid,
-        "name": nodeid.split("::")[-1] if "::" in nodeid else nodeid,
+        "name": str(getattr(report, "case_name", "") or (nodeid.split("::")[-1] if "::" in nodeid else nodeid)),
         "status": status,
         "duration": round(getattr(report, "duration", 0), 2),
         "app": app,

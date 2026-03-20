@@ -174,6 +174,7 @@ def _click_agree_if_present(driver) -> None:
 @pytest.mark.smoke
 @pytest.mark.full
 @pytest.mark.lysora
+@pytest.mark.case_name("Lysora 登录并校验 My 页账号")
 def test_lysora_login_and_verify_account_in_my_tab(driver):
     """按 8 步流程：登录 Lysora，并在 My 页断言账号存在。"""
     lysora_package = os.getenv("LYSORA_APP_PACKAGE", "com.lysora.lyapp")

@@ -109,6 +109,7 @@ def _assert_lysora_logo_rendered(driver) -> None:
 @pytest.mark.smoke
 @pytest.mark.full
 @pytest.mark.lysora
+@pytest.mark.case_name("Lysora 首页 Logo 显示检查")
 def test_lysora_home_has_logo(driver):
     """验证 Lysora 首页 logo 图片是否正确显示。"""
     lysora_package = os.getenv("LYSORA_APP_PACKAGE", "com.lysora.lyapp")
