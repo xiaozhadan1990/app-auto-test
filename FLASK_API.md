@@ -1,6 +1,6 @@
 # Flask 接口文档
 
-本文档基于当前 `desktop_web_app.py` 实现整理，覆盖所有 Flask 路由。
+本文档基于当前模块化实现整理（`desktop_web_app.py` 入口 + `desktop_app/api.py` 路由），覆盖所有 Flask 路由。
 
 ## 基本信息
 
@@ -92,12 +92,27 @@
 {
   "ok": true,
   "packages": [
+    {
+      "value": "tests/lysora",
+      "label": "该应用全部用例",
+      "tooltip": "执行该应用目录下全部测试文件"
+    },
+    {
+      "value": "tests/lysora/test_lysora_home_logo.py",
+      "label": "Lysora 首页 Logo 显示检查",
+      "tooltip": "Lysora 首页 Logo 显示检查"
+    }
+  ],
+  "package_paths": [
     "tests/lysora",
-    "tests/lysora/test_lysora_home_logo.py",
-    "tests/lysora/test_lysora_login_my_tab.py"
+    "tests/lysora/test_lysora_home_logo.py"
   ]
 }
 ```
+
+- 说明：
+  - `packages` 为对象数组（`value/label/tooltip`），前端用于中文展示与提示。
+  - `package_paths` 为兼容旧前端保留的纯路径数组。
 
 ### 6) 启动信息检查
 - 方法：`GET`

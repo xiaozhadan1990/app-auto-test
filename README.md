@@ -16,7 +16,17 @@ Android 移动端自动化测试框架，支持命令行与桌面 Web UI（Flask
 ```
 app-auto-test/
 ├── conftest.py                  # Pytest 全局 fixtures（驱动初始化、截图、录屏）
-├── desktop_web_app.py           # 桌面 Web UI 后端入口（Flask）
+├── desktop_web_app.py           # 桌面 Web UI 启动入口（装配 + main）
+├── desktop_app/                 # 桌面 Web UI 后端模块
+│   ├── api.py                   # Flask 路由定义
+│   ├── app_factory.py           # Flask app 创建
+│   ├── services_container.py    # 服务依赖容器（统一装配）
+│   ├── task_service.py          # 任务执行与状态管理
+│   ├── report_service.py        # 报告处理与数据读取
+│   ├── db_service.py            # SQLite 读写与历史查询
+│   ├── remote_ws_service.py     # 远程 WebSocket 控制
+│   ├── device_service.py        # 设备信息查询
+│   └── package_service.py       # 用例包与 case_name 显示名解析
 ├── pytest.ini                   # Pytest 配置
 ├── requirements.txt             # Python 依赖
 ├── .env.example                 # 环境变量模板
@@ -120,7 +130,7 @@ pytest tests/ -m ruijieCloud
 前端本地开发（React）：
 
 ```powershell
-# 终端1：启动后端
+# 终端1：启动后端（入口文件会装配 desktop_app 模块）
 python .\desktop_web_app.py
 
 # 终端2：启动前端（通过 Vite 代理访问后端 /api）

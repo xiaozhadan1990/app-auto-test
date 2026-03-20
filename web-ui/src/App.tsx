@@ -33,6 +33,7 @@ type AppOption = {
 type TestPackageOption = {
   value: string;
   label: string;
+  tooltip?: string;
 };
 
 function normalizePackageValue(input: unknown): string | undefined {
@@ -430,7 +431,8 @@ function App() {
         const value = String(entry?.value || "").trim();
         if (!value) return null;
         const label = String(entry?.label || value).trim() || value;
-        return { value, label };
+        const tooltip = String(entry?.tooltip || "").trim();
+        return { value, label, tooltip: tooltip || label };
       })
       .filter((item): item is TestPackageOption => Boolean(item));
     setPackages(list);
@@ -780,7 +782,11 @@ function App() {
                 style={{ width: "100%" }}
                 value={selectedPackage}
                 onChange={(value) => setSelectedPackage(normalizePackageValue(value))}
-                options={packages}
+                options={packages.map((item) => ({
+                  value: item.value,
+                  label: item.label,
+                  title: item.tooltip || item.label,
+                }))}
               />
             </Col>
             <Col span={6}>

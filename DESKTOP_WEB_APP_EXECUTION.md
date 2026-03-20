@@ -1,14 +1,38 @@
 # desktop_web_app.py 执行过程说明
 
-本文档说明 `desktop_web_app.py` 的实际运行链路，按“启动 -> API 调用 -> 测试任务 -> 报告 -> 远程控制”展开。
+本文档说明当前桌面端后端的实际运行链路，按“入口 -> 依赖容器 -> API 调用 -> 测试任务 -> 报告 -> 远程控制”展开。
 
 ## 1. 程序角色与职责
 
-- 提供 Flask Web 服务，承载桌面端前端页面与 API。
-- 调用 `adb` 获取设备信息。
-- 调用 `pytest` 执行自动化测试（子进程）。
-- 生成并管理测试报告（HTML + JSON + SQLite）。
-- 可选连接远程 WebSocket，实现远程控制与状态上报。
+- `desktop_web_app.py`：入口文件，仅负责环境加载、容器创建、启动服务。
+- `desktop_app/services_container.py`：依赖容器，统一装配各业务服务与状态。
+- `desktop_app/api.py` + `desktop_app/app_factory.py`：Flask 路由注册与应用创建。
+- `desktop_app/task_service.py`：测试任务执行、状态查询、停止任务。
+- `desktop_app/report_service.py`：报告路径/资产/入库与查询。
+- `desktop_app/db_service.py`：SQLite 存取与历史查询。
+- `desktop_app/remote_ws_service.py`：远程 WS 连接、心跳、命令分发。
+
+## 1.1 模块依赖关系简图（文字版）
+
+```text
+desktop_web_app.py
+  -> DesktopServiceContainer (desktop_app/services_container.py)
+      -> app_factory.create_app(...)
+          -> api.register_routes(...)
+              -> services.* (统一由容器提供能力)
+
+services_container
+  -> task_service        (run_tests / task_status / stop_task)
+  -> report_service      (报告路径、入库、读取、资产解析)
+  -> db_service          (SQLite 连接、设备状态、任务历史)
+  -> remote_ws_service   (连接、心跳、消息处理、命令分发)
+  -> device_service      (adb 设备与 app 版本查询)
+  -> package_service     (测试包列表与 case_name 显示名解析)
+
+api.py
+  -> 只做参数解析与响应封装
+  -> 不直接写业务逻辑，统一委托给 services_container
+```
 
 ## 2. 启动阶段（main）
 
@@ -16,13 +40,16 @@
 
 启动顺序：
 1. 模块加载时先执行 `_load_local_env_file()`，从多个候选路径读取 `.env` 并写入环境变量（不覆盖已有变量）。
-2. 进入 `main()` 后，先判断是否为 pytest 子进程模式：
+2. 模块初始化阶段：
+   - 创建 `DesktopServiceContainer`（`services`）。
+   - `create_app(services.build_api_deps())` 生成 Flask 应用并注册全部路由。
+3. 进入 `main()` 后，先判断是否为 pytest 子进程模式：
    - 若命令行为 `--run-pytest`，直接 `pytest.main(...)` 后退出。
-3. 正常服务模式下执行：
-   - `_init_runtime_db()`：初始化 SQLite 表结构。
-   - `_start_remote_ws_if_needed()`：若配置开启远程 WS，则启动后台线程连接。
+4. 正常服务模式下执行：
+   - `services.init_runtime_db()`：初始化 SQLite 表结构。
+   - `services.start_remote_ws_if_needed(...)`：若配置开启远程 WS，则启动后台线程连接。
    - 读取监听地址和端口（`DESKTOP_WEB_HOST` / `DESKTOP_WEB_PORT`）。
-   - 如果启用 `DESKTOP_WEB_AUTO_PORT_FALLBACK`，调用 `_get_free_port(...)` 自动避让端口占用。
+   - 如果启用 `DESKTOP_WEB_AUTO_PORT_FALLBACK`，调用 `services.get_free_port(...)` 自动避让端口占用。
    - 启动后台线程 `_auto_open_browser(url)` 自动打开浏览器。
    - `app.run(...)` 启动 Flask 服务。
 
@@ -33,6 +60,8 @@
 - `_tasks`: 运行中任务字典，按 `task_id` 存储子进程、状态、日志路径等。
 - `_device_running_task`: 设备与任务映射，用于“一台设备同一时间仅允许一个任务”。
 - `_tasks_lock`: 并发读写锁。
+- `services.task_runtime`: 任务运行时容器（由 `task_service` 使用）。
+- `services.remote_ws_runtime`: 远程 WS 运行时容器（由 `remote_ws_service` 使用）。
 
 ### 3.2 持久化状态（SQLite）
 
@@ -48,40 +77,41 @@
 
 ### 4.1 页面与静态资源
 
-- `GET /` -> `index()` -> 返回 `ui/index.html`
-- `GET /assets/<path>` -> `ui_assets()` -> 返回前端静态资源
+- 路由定义位置：`desktop_app/api.py`
+- `GET /` -> 返回 `ui/index.html`
+- `GET /assets/<path>` -> 返回前端静态资源
 
 ### 4.2 设备与配置
 
-- `POST /api/list_devices` -> `_list_devices()`
+- `POST /api/list_devices` -> `services.list_devices()`
   - 执行 `adb devices`
   - 对在线设备补充品牌/型号/系统版本
   - 查询 `APP_CONFIG` 中各 App 包名版本
 - `GET /api/get_app_options` -> 读取 `APP_CONFIG`
-- `POST /api/list_test_packages` -> `_list_test_packages(app_key)`
+- `POST /api/list_test_packages` -> `services.list_test_packages(app_key)`
 
 ### 4.3 测试任务
 
-- `POST /api/run_tests` -> `_run_tests(payload)`
-- `GET /api/task_status/<task_id>` -> `_task_status(task_id)`
-- `POST /api/stop_task` -> `_stop_task(payload)`
-- `GET /api/task_history` -> `_get_task_history(...)`
-- `GET /api/device_status/<device_serial>` -> `_get_device_status(...)`
+- `POST /api/run_tests` -> `services.run_tests(payload)` -> `task_service.run_tests(...)`
+- `GET /api/task_status/<task_id>` -> `services.task_status(task_id)`
+- `POST /api/stop_task` -> `services.stop_task(payload)`
+- `GET /api/task_history` -> `services.get_task_history(...)`
+- `GET /api/device_status/<device_serial>` -> `services.get_device_status(...)`
 
 ### 4.4 报告与日志
 
 - `GET /api/task_log/<task_id>` -> 下载任务日志
 - `GET /api/task_report/<task_id>` -> 返回任务 HTML 报告
-- `GET /api/task_report_data/<task_id>` -> `_get_task_report_data(...)`
+- `GET /api/task_report_data/<task_id>` -> `services.get_task_report_data(...)`
 - `GET /api/report_asset?path=...` -> 安全校验后返回截图/视频文件
-- `POST /api/open_report` -> `_open_report()` 打开最新报告
+- `POST /api/open_report` -> `services.open_report()` 打开最新报告
 
 ### 4.5 启动检查与远程状态
 
-- `GET /api/startup_info` -> `_startup_info()`（当前主要检查 `adb`）
-- `GET /api/appium_ready` -> `_appium_ready()`（探测 `APPIUM_SERVER_URL/status`）
-- `GET /api/remote_ws_status` -> `_remote_ws_status()`
-- `GET /api/remote_ws_log` -> `_read_remote_ws_log_lines(...)`
+- `GET /api/startup_info` -> `services.startup_info()`
+- `GET /api/appium_ready` -> `services.appium_ready()`
+- `GET /api/remote_ws_status` -> `services.remote_ws_status()`
+- `GET /api/remote_ws_log` -> `services.read_remote_ws_log_lines(...)`
 
 ## 5. 任务执行主流程（_run_tests）
 
@@ -173,4 +203,29 @@
 
 ## 9. 一句话总览
 
-`desktop_web_app.py` 本质是一个“测试任务编排器 + 结果服务层”：前端通过 Flask API 触发任务，后端用子进程跑 pytest，用线程监控与收尾，再把结果落地到文件和 SQLite，并提供查询与远程控制能力。
+当前架构是“轻入口 + 模块化服务层”：`desktop_web_app.py` 负责启动，`desktop_app/*` 负责 API、任务编排、报告、数据库和远程控制能力。
+
+## 10. 典型请求链路示例（POST /api/run_tests）
+
+以下链路按当前实现的真实调用路径展开：
+
+1. 前端发起 `POST /api/run_tests`，请求体包含 `device/app_key/test_packages/suite`。
+2. `desktop_app/api.py` 中路由函数读取 JSON 后，调用 `services.run_tests(payload)`。
+3. `services_container.run_tests(...)` 将依赖打包后，委托给 `task_service.run_tests(...)`。
+4. `task_service.run_tests(...)` 完成参数与 Appium 就绪校验：
+   - `services.appium_ready()` 探测 `APPIUM_SERVER_URL/status`
+   - 校验 `device` 与 `test_packages`
+5. 任务启动阶段：
+   - 生成 `task_id`
+   - 设置任务级环境变量（`APPIUM_UDID`、`TEST_RESULTS_FILE`、`TEST_REPORT_FILE`）
+   - `subprocess.Popen` 启动 pytest 子进程
+6. 状态落地阶段：
+   - 内存态：`TaskRuntime.tasks/device_running_task`
+   - 持久化：`services.insert_task_history(...)` + `services.set_device_status(...)`
+7. 后台监控线程 `_watch_task`：
+   - 持续读取 pytest 输出写入 `reports/task-logs/<task_id>.log`
+   - 执行报告后处理与入库（`services.save_task_report_to_db(...)`）
+   - 回写最终状态（success/failed/stopped）
+8. 查询与展示阶段：
+   - 前端轮询 `GET /api/task_status/<task_id>`
+   - 任务结束后可通过 `GET /api/task_report/<task_id>` 和 `GET /api/task_report_data/<task_id>` 查看报告。
