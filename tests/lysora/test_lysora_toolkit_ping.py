@@ -295,7 +295,7 @@ def _assert_compare_visible(driver) -> None:
 
 def _back_to_toolkit_page(driver) -> None:
     # 用例收尾时尽量回到 ToolKit 页面，避免影响后续用例。
-    toolkit_tab = _first_clickable(
+    toolkit_tab = _first_visible(
         driver,
         [
             (AppiumBy.ACCESSIBILITY_ID, "ToolKit"),
@@ -320,7 +320,7 @@ def _back_to_toolkit_page(driver) -> None:
     except Exception:
         return
 
-    toolkit_tab = _first_clickable(
+    toolkit_tab = _first_visible(
         driver,
         [
             (AppiumBy.ACCESSIBILITY_ID, "ToolKit"),
