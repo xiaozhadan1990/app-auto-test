@@ -43,3 +43,4 @@ ui/index.html
 node_modules
 rjenv
 uv.lock
+.claude/
