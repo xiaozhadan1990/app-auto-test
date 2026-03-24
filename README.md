@@ -1,50 +1,48 @@
 # app-auto-test
 
-移动端自动化测试工具，包含两部分：
-
-- Python 后端，用于设备管理、任务调度、测试执行和报告处理
-- React 桌面 Web UI，用于在浏览器里操作测试任务和查看结果
+移动端自动化测试工具，包含 Python 后端、桌面 Web UI、pytest/Appium 测试执行链路，以及报告生成与查看能力。
 
 当前项目以 Android 自动化测试为主，测试架构已经预留 iOS 适配能力。
 
 ## 功能概览
 
-- 基于 Appium + pytest 执行移动端自动化测试
-- 支持 `Lysora` 和 `RuijieCloud` 两个应用测试域
-- 提供 Flask 桌面 Web UI
-- 保存任务历史、日志、测试报告和截图/视频
+- 使用 Appium + pytest 执行移动端自动化测试
+- 支持 `Lysora` 和 `RuijieCloud` 两个应用的测试
+- 提供桌面 Web UI 管理设备、任务和报告
+- 保存任务历史、日志、截图、视频和测试报告
 - 支持 PyInstaller 打包桌面版运行程序
+- 支持远程 WebSocket 控制与报告资产上传
 
 ## 目录结构
 
 ```text
 app-auto-test/
-├── desktop_web_app.py
-├── desktop_app/
-├── tests/
-├── web-ui/
-├── ui/
-├── reports/
-├── conftest.py
-├── pytest.ini
-├── pyproject.toml
-├── uv.lock
-├── start_dev_all.ps1
-├── stop_dev_all.ps1
-├── run_tests_and_allure.ps1
-└── build_web_ui.bat
+├─ desktop_web_app.py
+├─ desktop_app/
+├─ tests/
+├─ web-ui/
+├─ ui/
+├─ reports/
+├─ conftest.py
+├─ pytest.ini
+├─ pyproject.toml
+├─ uv.lock
+├─ start_dev_all.ps1
+├─ stop_dev_all.ps1
+├─ run_tests_and_allure.ps1
+└─ build_web_ui.bat
 ```
 
 ## 环境要求
 
 - `uv`
 - Node.js
-- yarn 或 npm
+- yarn
 - Appium Server
 - adb
 - Android 设备或模拟器
 
-如果后续运行 iOS 用例，还需要补充 iOS 对应的 Appium/XCUITest 环境。
+如果后续执行 iOS 用例，还需要补齐 iOS 对应的 Appium/XCUITest 环境。
 
 ## Python 依赖管理
 
@@ -102,6 +100,11 @@ IOS_PLATFORM_VERSION=<ios version>
 uv run python .\desktop_web_app.py
 ```
 
+说明：
+
+- 启动入口会优先使用 `waitress` 作为 WSGI server
+- 如果本地环境里没有 `waitress`，才会回退到 Flask 开发服务器
+
 ### 启动前端开发服务
 
 ```powershell
@@ -115,7 +118,13 @@ yarn dev
 .\start_dev_all.ps1
 ```
 
-如果已经装好依赖，可跳过依赖同步：
+说明：
+
+- 脚本会先检查并同步 Python 依赖
+- 如果 `web-ui/node_modules` 不存在，会自动执行 `yarn install`
+- 后端通过 `uv run python desktop_web_app.py` 启动，默认优先使用 `waitress`
+
+如果依赖已经准备好，可以跳过安装：
 
 ```powershell
 .\start_dev_all.ps1 -NoInstall
@@ -126,6 +135,8 @@ yarn dev
 ```powershell
 .\stop_dev_all.ps1
 ```
+
+该脚本会停止默认后端端口 `17999` 和前端端口 `5173/5174` 上的监听进程。
 
 ## 运行测试
 
@@ -157,19 +168,21 @@ uv run pytest tests/ -m ruijieCloud
 说明：
 
 - 测试执行走 `uv run pytest`
-- 如果系统中存在 `allure` 命令，并传了报告参数，脚本会继续生成或打开 Allure 报告
+- 脚本会固定输出 `reports/allure-results/`
+- 每次执行前会清理旧的 Allure results
+- 如果系统存在 `allure` 命令，并传了报告参数，脚本会继续生成或打开 Allure 报告
 
 ## 测试标记
 
-- `smoke`: 冒烟测试
-- `full`: 全量回归测试
-- `lysora`: Lysora 相关用例
-- `ruijieCloud`: RuijieCloud 相关用例
-- `case_name(name)`: 自定义中文用例显示名
+- `smoke`：冒烟测试
+- `full`：全量回归测试
+- `lysora`：Lysora 相关用例
+- `ruijieCloud`：RuijieCloud 相关用例
+- `case_name(name)`：自定义报告中的用例展示名
 
 ## 测试报告
 
-项目当前有两套报告输出：
+项目当前有两套报告输出。
 
 ### 1. 运行时 JSON / HTML 报告
 
@@ -182,6 +195,7 @@ uv run pytest tests/ -m ruijieCloud
 
 - 由项目内置报告链路生成
 - 已支持按 `app + platform` 区分截图、视频和测试结果
+- 报告中的图片和视频统一通过后端接口访问
 
 ### 2. Allure 报告
 
@@ -189,6 +203,11 @@ uv run pytest tests/ -m ruijieCloud
 
 - `reports/allure-results/`
 - `reports/allure-html/`
+
+说明：
+
+- 截图和视频会以 Allure 附件形式写入结果目录
+- 不再依赖 `file:///...` 的本地路径打开媒体文件
 
 手动生成：
 
@@ -210,13 +229,13 @@ uv sync
 
 - 打包脚本已改成通过 `uv` 驱动 Python 依赖和 PyInstaller
 - 前端仍通过 Node.js 构建
-- 产物输出在 `dist/`
+- 产物输出到 `dist/`
 - 当前默认不再内置 `ADB / Appium / Node` 工具链
-- 目标机器需要自己准备这些运行依赖
+- 目标机器需要自行准备这些运行依赖
 
 ## 当前测试架构建议
 
-项目测试代码推荐按业务域组织，而不是直接按平台拆顶层目录。
+项目测试代码建议按业务域组织，而不是直接按平台拆顶层目录。
 
 当前结构方向：
 
@@ -233,12 +252,12 @@ uv sync
 - `page` 负责 locator 和页面动作
 - 平台差异优先下沉到 `page`
 
-## 说明
+## 常见问题
 
-如果你在本地执行测试时报 `127.0.0.1:4723` 连接失败，通常表示：
+如果本地执行测试时提示 `127.0.0.1:4723` 连接失败，通常表示：
 
 - Appium Server 没有启动
-- 设备没有连好
+- 设备没有连接好
 - `.env` 中的 Appium 地址配置不正确
 
-这不是 `uv` 命令本身的问题，而是运行环境未就绪。
+这不是 `uv` 本身的问题，而是运行环境尚未就绪。

@@ -117,7 +117,7 @@ if (-not $NoInstall) {
 $backendCmd = "Set-Location '$projectRoot'; uv run python desktop_web_app.py"
 $frontendCmd = "Set-Location '$webUiRoot'; yarn dev"
 
-Write-Host "[backend] Starting desktop_web_app.py with uv..."
+Write-Host "[backend] Starting desktop_web_app.py with uv (waitress preferred)..."
 Start-Process powershell -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $backendCmd | Out-Null
 
 Write-Host "[frontend] Starting yarn dev..."
@@ -125,7 +125,7 @@ Start-Process powershell -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", 
 
 Write-Host ""
 Write-Host "Started:"
-Write-Host ("  Backend : http://{0}:{1}" -f $backendHost, $backendPort)
+Write-Host ("  Backend : http://{0}:{1} (served by waitress when available)" -f $backendHost, $backendPort)
 Write-Host ("  Frontend: http://127.0.0.1:{0}" -f $FrontendPort)
 Write-Host ""
 Write-Host "Tip: use -NoInstall to skip dependency check."

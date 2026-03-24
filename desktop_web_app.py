@@ -17,6 +17,11 @@ try:
 except Exception:  # pragma: no cover
     websocket_client = None
 
+try:
+    from waitress import serve as waitress_serve
+except Exception:  # pragma: no cover
+    waitress_serve = None
+
 
 if getattr(sys, "frozen", False):
     RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
@@ -130,6 +135,11 @@ def main() -> None:
     port = services.get_free_port(host, preferred_port) if auto_port_fallback else preferred_port
     url = f"http://{host}:{port}"
     threading.Thread(target=_auto_open_browser, args=(url,), daemon=True).start()
+    if waitress_serve is not None:
+        print(f"[desktop-web] Serving with waitress at {url}")
+        waitress_serve(app, host=host, port=port)
+        return
+    print(f"[desktop-web] waitress not available, falling back to Flask dev server at {url}")
     app.run(host=host, port=port, debug=False, use_reloader=False)
 
 

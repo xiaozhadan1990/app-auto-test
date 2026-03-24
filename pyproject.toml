@@ -2,6 +2,7 @@
 name = "app-auto-test"
 version = "0.1.0"
 description = "Mobile automation test runner with Flask desktop web UI."
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "Appium-Python-Client",
@@ -10,6 +11,7 @@ dependencies = [
     "selenium",
     "Pillow",
     "Flask",
+    "waitress",
     "websocket-client",
     "typing_extensions>=4.15.0",
     "certifi>=2026.1.4",
@@ -18,3 +20,14 @@ dependencies = [
 
 [tool.uv]
 default-groups = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+markers = [
+    "smoke: 冒烟测试（快速验证关键路径）",
+    "full: 全量回归测试",
+    "ruijieCloud: RuijieCloud 相关测试",
+    "lysora: Lysora 相关测试",
+    "case_name(name): 自定义报告中的用例展示名",
+]

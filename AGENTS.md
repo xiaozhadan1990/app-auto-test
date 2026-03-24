@@ -14,7 +14,7 @@ Use it to understand:
 
 ## Project Summary
 
-This repository is an Android mobile automation test runner with a desktop web UI.
+This repository is a mobile automation test runner with a desktop web UI.
 
 Main capabilities:
 
@@ -23,6 +23,7 @@ Main capabilities:
 - show execution status and task history
 - generate HTML test reports
 - optionally expose remote control through WebSocket
+- support Android today and keep room for future iOS test support
 
 This is not just a test folder and not just a frontend app. It is a combined system:
 
@@ -57,7 +58,7 @@ Responsibilities:
 - create the Flask app
 - initialize runtime DB
 - optionally start remote WebSocket client
-- launch the desktop web server
+- launch the desktop web server, preferring `waitress` when available
 
 ### Backend composition root
 
@@ -153,6 +154,11 @@ When frontend assets change, keep in mind the runtime app serves static files fr
 uv run python .\desktop_web_app.py
 ```
 
+Current behavior:
+
+- backend startup prefers `waitress`
+- if `waitress` is unavailable locally, it falls back to the Flask dev server
+
 ### Start frontend dev server
 
 ```powershell
@@ -182,6 +188,11 @@ uv run pytest tests/ -m ruijieCloud
 .\run_tests_and_allure.ps1 -Suite full -Component lysora -OpenReport
 ```
 
+Current behavior:
+
+- helper script writes Allure raw results to `reports/allure-results/`
+- screenshots and videos are attached as Allure attachments instead of relying on local `file:///...` paths
+
 ### Frontend build
 
 ```powershell
@@ -200,21 +211,30 @@ uv sync
 
 Expected local dependencies:
 
-- Python
+- Python / `uv`
 - Node.js and yarn
 - Appium server
 - adb
 - Android device or emulator
 
+Optional / situational dependencies:
+
+- `waitress` for preferred backend serving
+- `allure` CLI for generating/opening Allure HTML reports
+- iOS Appium/XCUITest stack when iOS test support is added
+
 Important env vars from `.env`:
 
 - `APPIUM_SERVER_URL`
+- `APPIUM_PLATFORM_NAME`
 - `APPIUM_UDID`
 - `DESKTOP_WEB_HOST`
 - `DESKTOP_WEB_PORT`
 - `DESKTOP_WEB_AUTO_PORT_FALLBACK`
 - `LYSORA_APP_PACKAGE`
 - `RUIJIECLOUD_APP_PACKAGE`
+- `LYSORA_IOS_BUNDLE_ID`
+- `RUIJIECLOUD_IOS_BUNDLE_ID`
 - `REMOTE_WS_ENABLED`
 - `REMOTE_WS_URL`
 
@@ -235,6 +255,12 @@ Important env vars from `.env`:
 
 - `reports/test_report.html`
   - latest copied report
+
+- `reports/allure-results/`
+  - raw Allure results and binary attachments
+
+- `reports/allure-html/`
+  - generated Allure HTML report
 
 ## Core Execution Model
 
@@ -372,6 +398,12 @@ Tests currently live under:
 - `tests/lysora/`
 - `tests/ruijieCloud/`
 
+Page implementations are gradually being organized with platform-specific layers, for example:
+
+- `pages/android/`
+- `pages/ios/`
+- top-level `pages/*.py` wrappers that choose the platform implementation
+
 Common markers:
 
 - `smoke`
@@ -410,6 +442,8 @@ Prefer incremental changes over broad rewrites.
 - cannot start tasks: check `/api/appium_ready`
 - report missing: check `reports/task-reports/<task_id>/`
 - history exists but report details are empty: inspect report save flow
+- report image/video missing: inspect `/api/report_asset`, remote upload status, and `reports/remote-ws.log`
+- Allure video cannot open: make sure tests were rerun after the binary-attachment change and `allure-pytest` is installed
 - packaged app path bugs: inspect runtime/resource path handling first
 
 ## Default Agent Working Style For This Repo
