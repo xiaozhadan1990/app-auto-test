@@ -26,8 +26,6 @@ def report_asset_url(rel_path: str | None) -> str | None:
     value = (rel_path or "").strip()
     if not value:
         return None
-    if value.startswith(("http://", "https://")):
-        return value
     return f"/api/report_asset?path={urllib.parse.quote(value)}"
 
 
@@ -41,6 +39,28 @@ def _remote_report_upload_token() -> str:
 
 def _remote_report_upload_timeout_sec(env_int: Callable[[str, int], int]) -> int:
     return max(2, env_int("REMOTE_REPORT_UPLOAD_TIMEOUT_SEC", 20))
+
+
+def fetch_remote_report_asset(
+    asset_url: str,
+    *,
+    env_int: Callable[[str, int], int],
+) -> tuple[bytes, str] | None:
+    value = asset_url.strip()
+    if not value.startswith(("http://", "https://")):
+        return None
+
+    headers = {"Accept": "*/*"}
+    token = _remote_report_upload_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(value, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=_remote_report_upload_timeout_sec(env_int)) as resp:
+            content_type = resp.headers.get_content_type() or "application/octet-stream"
+            return resp.read(), content_type
+    except Exception:
+        return None
 
 
 def resolve_report_asset_path(

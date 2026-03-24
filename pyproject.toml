@@ -1,0 +1,20 @@
+[project]
+name = "app-auto-test"
+version = "0.1.0"
+description = "Mobile automation test runner with Flask desktop web UI."
+requires-python = ">=3.11"
+dependencies = [
+    "Appium-Python-Client",
+    "pytest",
+    "allure-pytest",
+    "selenium",
+    "Pillow",
+    "Flask",
+    "websocket-client",
+    "typing_extensions>=4.15.0",
+    "certifi>=2026.1.4",
+    "urllib3[socks]>=2.6.3,<3.0",
+]
+
+[tool.uv]
+default-groups = []

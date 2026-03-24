@@ -96,6 +96,13 @@ Stop-PortOwners -Port $FrontendPort -Label "frontend"
 
 if (-not $NoInstall) {
     $nodeModules = Join-Path $webUiRoot "node_modules"
+    Write-Host "[backend] Syncing Python dependencies with uv..."
+    Push-Location $projectRoot
+    try {
+        uv sync
+    } finally {
+        Pop-Location
+    }
     if (-not (Test-Path -LiteralPath $nodeModules)) {
         Write-Host "[frontend] Installing dependencies (yarn install)..."
         Push-Location $webUiRoot
@@ -107,10 +114,10 @@ if (-not $NoInstall) {
     }
 }
 
-$backendCmd = "Set-Location '$projectRoot'; python desktop_web_app.py"
+$backendCmd = "Set-Location '$projectRoot'; uv run python desktop_web_app.py"
 $frontendCmd = "Set-Location '$webUiRoot'; yarn dev"
 
-Write-Host "[backend] Starting desktop_web_app.py..."
+Write-Host "[backend] Starting desktop_web_app.py with uv..."
 Start-Process powershell -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $backendCmd | Out-Null
 
 Write-Host "[frontend] Starting yarn dev..."

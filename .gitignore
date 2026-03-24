@@ -42,4 +42,4 @@ ui/assets/
 ui/index.html
 node_modules
 rjenv
-
+uv.lock

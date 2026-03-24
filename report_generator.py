@@ -30,36 +30,34 @@ def generate_report(results_file: str | Path, output_file: str | Path) -> bool:
     for i, test in enumerate(tests):
         status = test.get("status", "unknown")
         status_class = {"passed": "pass", "failed": "fail", "skipped": "skip"}.get(status, "skip")
-        status_label = {"passed": "✓ 通过", "failed": "✗ 失败", "skipped": "⊘ 跳过"}.get(status, status)
+        status_label = {"passed": "Passed", "failed": "Failed", "skipped": "Skipped"}.get(status, status)
+        platform_label = str(test.get("platform") or "-")
 
-        # Screenshot — embed as base64 for self-contained report
         sc_path_str = test.get("screenshot")
         if sc_path_str:
             sc_abs = _PROJECT_ROOT / sc_path_str
             if sc_abs.exists():
                 img_b64 = base64.b64encode(sc_abs.read_bytes()).decode()
-                screenshot_html = f'<img src="data:image/png;base64,{img_b64}" class="screenshot" alt="截图"/>'
+                screenshot_html = f'<img src="data:image/png;base64,{img_b64}" class="screenshot" alt="screenshot"/>'
             else:
-                screenshot_html = '<p class="no-art">截图文件不存在</p>'
+                screenshot_html = '<p class="no-art">Screenshot file not found</p>'
         else:
-            screenshot_html = '<p class="no-art">无截图（测试通过）</p>'
+            screenshot_html = '<p class="no-art">No screenshot</p>'
 
-        # Video — absolute URI link
         video_path_str = test.get("video")
         if video_path_str:
             video_abs = _PROJECT_ROOT / video_path_str
             if video_abs.exists():
                 video_uri = video_abs.resolve().as_uri()
                 video_html = (
-                    f'<a class="video-btn" href="{video_uri}" target="_blank">▶ 播放视频</a>'
+                    f'<a class="video-btn" href="{video_uri}" target="_blank">Open video</a>'
                     f'<div class="video-path">{video_path_str}</div>'
                 )
             else:
-                video_html = '<p class="no-art">视频文件不存在</p>'
+                video_html = '<p class="no-art">Video file not found</p>'
         else:
-            video_html = '<p class="no-art">无视频</p>'
+            video_html = '<p class="no-art">No video</p>'
 
-        # Error
         error_msg = test.get("error_message") or ""
         error_html = ""
         if error_msg:
@@ -73,22 +71,23 @@ def generate_report(results_file: str | Path, output_file: str | Path) -> bool:
           <td><span class="badge {status_class}">{status_label}</span></td>
           <td class="center">{test.get('duration', 0)}s</td>
           <td class="center">{test.get('app', '-')}</td>
+          <td class="center">{platform_label}</td>
         </tr>
         <tr id="det{i}" class="det-row">
-          <td colspan="5">
+          <td colspan="6">
             <div class="det-body">
-              <div class="det-sc"><h4>截图</h4>{screenshot_html}</div>
-              <div class="det-vid"><h4>测试视频</h4>{video_html}</div>
+              <div class="det-sc"><h4>Screenshot</h4>{screenshot_html}</div>
+              <div class="det-vid"><h4>Test Video</h4>{video_html}</div>
               {error_html}
             </div>
           </td>
         </tr>"""
 
     html = f"""<!DOCTYPE html>
-<html lang="zh">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>测试报告</title>
+<title>Test Report</title>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f7fa;color:#333;padding:20px}}
@@ -125,27 +124,28 @@ h4{{font-size:.82em;text-transform:uppercase;letter-spacing:.5px;color:#666;marg
 </style>
 </head>
 <body>
-<h1>测试报告</h1>
+<h1>Test Report</h1>
 <div class="meta">
-  开始: {data.get('session_start', '-')} &nbsp;|&nbsp;
-  结束: {data.get('session_end', '-')} &nbsp;|&nbsp;
-  总耗时: {total_duration:.1f}s &nbsp;|&nbsp;
-  通过率: {pass_rate}
+  Start: {data.get('session_start', '-')} &nbsp;|&nbsp;
+  End: {data.get('session_end', '-')} &nbsp;|&nbsp;
+  Duration: {total_duration:.1f}s &nbsp;|&nbsp;
+  Pass Rate: {pass_rate}
 </div>
 <div class="summary">
-  <div class="card"><div class="num">{total}</div><div class="label">总计</div></div>
-  <div class="card"><div class="num pass">{passed}</div><div class="label">通过</div></div>
-  <div class="card"><div class="num fail">{failed}</div><div class="label">失败</div></div>
-  <div class="card"><div class="num skip">{skipped}</div><div class="label">跳过</div></div>
+  <div class="card"><div class="num">{total}</div><div class="label">Total</div></div>
+  <div class="card"><div class="num pass">{passed}</div><div class="label">Passed</div></div>
+  <div class="card"><div class="num fail">{failed}</div><div class="label">Failed</div></div>
+  <div class="card"><div class="num skip">{skipped}</div><div class="label">Skipped</div></div>
 </div>
 <table>
   <thead>
     <tr>
       <th style="width:40px">#</th>
-      <th>测试用例</th>
-      <th style="width:90px">结果</th>
-      <th style="width:70px">耗时</th>
-      <th style="width:110px">应用</th>
+      <th>Test Case</th>
+      <th style="width:90px">Status</th>
+      <th style="width:70px">Time</th>
+      <th style="width:110px">App</th>
+      <th style="width:90px">Platform</th>
     </tr>
   </thead>
   <tbody>{rows_html}</tbody>

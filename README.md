@@ -1,194 +1,244 @@
 # app-auto-test
 
-Android 移动端自动化测试框架，支持命令行与桌面 Web UI（Flask）两种运行方式，集成 Allure 测试报告。
+移动端自动化测试工具，包含两部分：
 
-## 功能特性
+- Python 后端，用于设备管理、任务调度、测试执行和报告处理
+- React 桌面 Web UI，用于在浏览器里操作测试任务和查看结果
 
-- 基于 Appium + UiAutomator2 驱动 Android 设备
-- 支持多 App 测试套件（Lysora、锐捷云）
-- 自动捕获失败截图与全程录屏
-- 生成 Allure HTML 测试报告
-- 桌面 Web UI 启动器（Flask + 浏览器自动打开）
-- 支持打包为独立可执行文件（PyInstaller）
+当前项目以 Android 自动化测试为主，测试架构已经预留 iOS 适配能力。
+
+## 功能概览
+
+- 基于 Appium + pytest 执行移动端自动化测试
+- 支持 `Lysora` 和 `RuijieCloud` 两个应用测试域
+- 提供 Flask 桌面 Web UI
+- 保存任务历史、日志、测试报告和截图/视频
+- 支持 PyInstaller 打包桌面版运行程序
 
 ## 目录结构
 
-```
+```text
 app-auto-test/
-├── conftest.py                  # Pytest 全局 fixtures（驱动初始化、截图、录屏）
-├── desktop_web_app.py           # 桌面 Web UI 启动入口（装配 + main）
-├── desktop_app/                 # 桌面 Web UI 后端模块
-│   ├── api.py                   # Flask 路由定义
-│   ├── app_factory.py           # Flask app 创建
-│   ├── services_container.py    # 服务依赖容器（统一装配）
-│   ├── task_service.py          # 任务执行与状态管理
-│   ├── report_service.py        # 报告处理与数据读取
-│   ├── db_service.py            # SQLite 读写与历史查询
-│   ├── remote_ws_service.py     # 远程 WebSocket 控制
-│   ├── device_service.py        # 设备信息查询
-│   └── package_service.py       # 用例包与 case_name 显示名解析
-├── pytest.ini                   # Pytest 配置
-├── requirements.txt             # Python 依赖
-├── .env.example                 # 环境变量模板
+├── desktop_web_app.py
+├── desktop_app/
 ├── tests/
-│   ├── lysora/                  # Lysora App 测试用例
-│   └── ruijieCloud/             # 锐捷云 App 测试用例
-├── ui/                          # React 构建产物（由 web-ui 构建输出）
-├── web-ui/                      # React + Antd + TypeScript 前端源码
-├── build-assets/
-│   └── tools/
-│       ├── adb/                 # 内置 ADB 工具
-│       └── appium/              # 内置 Appium & Node.js
+├── web-ui/
+├── ui/
 ├── reports/
-│   ├── allure-results/          # Allure 原始结果
-│   ├── allure-html/             # 生成的 HTML 报告
-│   ├── screenshots/             # 失败截图
-│   └── videos/                  # 测试录屏
-├── run_tests_and_allure.ps1     # 命令行测试运行脚本
-├── start_desktop_ui.ps1         # 桌面 Web UI 启动脚本（含端口占用检查）
-└── build_web_ui.bat             # PyInstaller 打包脚本
+├── conftest.py
+├── pytest.ini
+├── pyproject.toml
+├── uv.lock
+├── start_dev_all.ps1
+├── stop_dev_all.ps1
+├── run_tests_and_allure.ps1
+└── build_web_ui.bat
 ```
 
-## 环境准备
+## 环境要求
 
-### 前置要求
+- `uv`
+- Node.js
+- yarn 或 npm
+- Appium Server
+- adb
+- Android 设备或模拟器
 
-- Python 3.8+
-- Android 设备（开启 USB 调试）或模拟器
-- ADB（可使用 `build-assets/tools/adb/` 内置版本）
-- Appium（可使用 `build-assets/tools/appium/` 内置版本）
+如果后续运行 iOS 用例，还需要补充 iOS 对应的 Appium/XCUITest 环境。
 
-### 安装依赖
+## Python 依赖管理
 
-```bash
-pip install -r requirements.txt
+项目现在使用 `uv` 管理 Python 依赖。
+
+首次安装依赖：
+
+```powershell
+uv sync
 ```
 
-### 配置环境变量
+常用运行方式：
 
-复制模板并填写实际参数：
-
-```bash
-cp .env.example .env
+```powershell
+uv run python .\desktop_web_app.py
+uv run pytest tests/
+uv run pytest tests/ -m smoke
 ```
 
-编辑 `.env`：
+## 环境变量
+
+先复制模板：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+常用变量包括：
 
 ```env
 APPIUM_SERVER_URL=http://127.0.0.1:4723
+APPIUM_PLATFORM_NAME=android
 APPIUM_AUTOMATION_NAME=UiAutomator2
 APPIUM_DEVICE_NAME=Android Device
-APPIUM_UDID=<设备 UDID，通过 adb devices 查看>
+APPIUM_UDID=<device udid>
 
-# 锐捷云
-RUIJIECLOUD_APP_PACKAGE=cn.com.ruijie.cloudapp
-RUIJIECLOUD_APP_ACTIVITY=<启动 Activity>
-
-# Lysora
 LYSORA_APP_PACKAGE=com.lysora.lyapp
+RUIJIECLOUD_APP_PACKAGE=cn.com.ruijie.cloudapp
 ```
 
-## 运行测试
+如果后续接入 iOS，可额外配置：
 
-### 命令行方式
+```env
+APPIUM_PLATFORM_NAME=ios
+LYSORA_IOS_BUNDLE_ID=<ios bundle id>
+RUIJIECLOUD_IOS_BUNDLE_ID=<ios bundle id>
+IOS_PLATFORM_VERSION=<ios version>
+```
 
-使用 PowerShell 脚本运行：
+## 启动项目
+
+### 启动后端
 
 ```powershell
-# 运行全部冒烟测试
-.\run_tests_and_allure.ps1 -Suite smoke
-
-# 运行指定 App 的完整测试并自动打开报告
-.\run_tests_and_allure.ps1 -Suite full -Component lysora -OpenReport
-
-# 参数说明
-# -Suite       smoke | full           测试套件类型
-# -Component   all | lysora | ruijieCloud  指定 App 范围
-# -OpenReport  生成后自动打开报告
-# -ServeReport 启动本地 HTTP 服务预览报告
+uv run python .\desktop_web_app.py
 ```
 
-直接使用 pytest：
-
-```bash
-# 运行所有测试
-pytest tests/
-
-# 按标记过滤
-pytest tests/ -m smoke
-pytest tests/ -m "lysora and smoke"
-pytest tests/ -m ruijieCloud
-```
-
-### 桌面 Web UI 方式
+### 启动前端开发服务
 
 ```powershell
-# 推荐：启动前检查端口占用
-.\start_desktop_ui.ps1
-```
-
-前端本地开发（React）：
-
-```powershell
-# 终端1：启动后端（入口文件会装配 desktop_app 模块）
-python .\desktop_web_app.py
-
-# 终端2：启动前端（通过 Vite 代理访问后端 /api）
 cd .\web-ui
 yarn dev
 ```
 
-一键启动前后端（推荐）：
+### 一键启动前后端
 
 ```powershell
-# 自动清理端口冲突并分别拉起后端 + 前端
 .\start_dev_all.ps1
+```
 
-# 已安装依赖时可跳过检查
+如果已经装好依赖，可跳过依赖同步：
+
+```powershell
 .\start_dev_all.ps1 -NoInstall
 ```
 
-一键停止前后端：
+### 一键停止前后端
 
 ```powershell
 .\stop_dev_all.ps1
 ```
 
+## 运行测试
+
+### 直接使用 pytest
+
+```powershell
+uv run pytest tests/
+uv run pytest tests/ -m smoke
+uv run pytest tests/ -m "lysora and smoke"
+uv run pytest tests/ -m ruijieCloud
+```
+
+### 使用辅助脚本
+
+```powershell
+.\run_tests_and_allure.ps1 -Suite smoke
+.\run_tests_and_allure.ps1 -Suite full -Component lysora
+.\run_tests_and_allure.ps1 -Suite full -Component ruijieCloud -OpenReport
+```
+
+脚本参数：
+
+- `-Suite smoke|full|all`
+- `-Component all|lysora|ruijieCloud`
+- `-GenerateReport`
+- `-OpenReport`
+- `-ServeReport`
+
+说明：
+
+- 测试执行走 `uv run pytest`
+- 如果系统中存在 `allure` 命令，并传了报告参数，脚本会继续生成或打开 Allure 报告
+
 ## 测试标记
 
-| 标记 | 说明 |
-|------|------|
-| `smoke` | 冒烟测试，快速验证核心功能 |
-| `full` | 完整回归测试 |
-| `lysora` | Lysora App 专属用例 |
-| `ruijieCloud` | 锐捷云 App 专属用例 |
+- `smoke`: 冒烟测试
+- `full`: 全量回归测试
+- `lysora`: Lysora 相关用例
+- `ruijieCloud`: RuijieCloud 相关用例
+- `case_name(name)`: 自定义中文用例显示名
 
 ## 测试报告
 
-测试完成后，Allure 报告保存在 `reports/allure-html/`，失败截图和录屏分别在 `reports/screenshots/` 和 `reports/videos/`。
+项目当前有两套报告输出：
 
-手动生成报告：
+### 1. 运行时 JSON / HTML 报告
 
-```bash
+生成位置：
+
+- `reports/test_results.json`
+- `reports/test_report.html`
+
+特点：
+
+- 由项目内置报告链路生成
+- 已支持按 `app + platform` 区分截图、视频和测试结果
+
+### 2. Allure 报告
+
+默认目录：
+
+- `reports/allure-results/`
+- `reports/allure-html/`
+
+手动生成：
+
+```powershell
 allure generate reports/allure-results -o reports/allure-html --clean
 allure open reports/allure-html
 ```
 
-## 打包为可执行文件
+## 打包桌面版
+
+打包命令：
 
 ```powershell
+uv sync
 .\build_web_ui.bat
 ```
 
-打包产物输出到 `dist/` 目录，内含 ADB、Appium 等工具，可在无开发环境的 Windows 机器上直接运行。
+说明：
 
-## 依赖说明
+- 打包脚本已改成通过 `uv` 驱动 Python 依赖和 PyInstaller
+- 前端仍通过 Node.js 构建
+- 产物输出在 `dist/`
+- 当前默认不再内置 `ADB / Appium / Node` 工具链
+- 目标机器需要自己准备这些运行依赖
 
-| 依赖 | 用途 |
-|------|------|
-| Appium-Python-Client | Appium WebDriver 客户端 |
-| pytest | 测试框架 |
-| selenium | WebDriver 基础库 |
-| allure-pytest | Allure 报告插件 |
-| Pillow | 截图图像分析 |
-| Flask | 桌面 Web UI 服务 |
+## 当前测试架构建议
+
+项目测试代码推荐按业务域组织，而不是直接按平台拆顶层目录。
+
+当前结构方向：
+
+- `tests/lysora/`
+- `tests/ruijieCloud/`
+- `pages/android/`
+- `pages/ios/`
+- 顶层 `pages/*.py` 作为平台选择入口
+
+建议原则：
+
+- `test` 负责场景编排和断言
+- `flow` 负责跨页面流程
+- `page` 负责 locator 和页面动作
+- 平台差异优先下沉到 `page`
+
+## 说明
+
+如果你在本地执行测试时报 `127.0.0.1:4723` 连接失败，通常表示：
+
+- Appium Server 没有启动
+- 设备没有连好
+- `.env` 中的 Appium 地址配置不正确
+
+这不是 `uv` 命令本身的问题，而是运行环境未就绪。

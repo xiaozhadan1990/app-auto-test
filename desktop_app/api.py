@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, jsonify, request, send_file, send_from_directory
 
 
 @dataclass
@@ -22,6 +22,7 @@ class ApiDeps:
     task_report_paths: Callable[[str], tuple[Path, Path]]
     get_task_report_data: Callable[[str], dict[str, Any] | None]
     resolve_report_asset_path: Callable[[str], Path | None]
+    fetch_remote_report_asset: Callable[[str], tuple[bytes, str] | None]
     stop_task: Callable[[dict[str, Any]], dict[str, Any]]
     get_device_status: Callable[[str], dict[str, Any]]
     open_report: Callable[[], dict[str, Any]]
@@ -88,34 +89,40 @@ def register_routes(app: Flask, deps: ApiDeps) -> None:
     def api_task_log(task_id: str) -> Any:
         record = deps.get_task_record(task_id)
         if not record:
-            return jsonify({"ok": False, "error": f"任务不存在: {task_id}"}), 404
+            return jsonify({"ok": False, "error": f"task not found: {task_id}"}), 404
         log_path = Path(str(record.get("log_path") or ""))
         if not log_path.exists():
-            return jsonify({"ok": False, "error": f"日志不存在: {log_path}"}), 404
+            return jsonify({"ok": False, "error": f"log file not found: {log_path}"}), 404
         return send_file(log_path, as_attachment=True, download_name=f"{task_id}.log", mimetype="text/plain")
 
     @app.get("/api/task_report/<task_id>")
     def api_task_report(task_id: str) -> Any:
         _, report_file = deps.task_report_paths(task_id)
         if not report_file.exists():
-            return jsonify({"ok": False, "error": f"任务报告不存在: {task_id}"}), 404
+            return jsonify({"ok": False, "error": f"task report not found: {task_id}"}), 404
         return send_file(report_file, mimetype="text/html")
 
     @app.get("/api/task_report_data/<task_id>")
     def api_task_report_data(task_id: str) -> Any:
         data = deps.get_task_report_data(task_id)
         if not data:
-            return jsonify({"ok": False, "error": f"任务报告数据不存在: {task_id}"}), 404
+            return jsonify({"ok": False, "error": f"task report data not found: {task_id}"}), 404
         return jsonify({"ok": True, "task_id": task_id, **data})
 
     @app.get("/api/report_asset")
     def api_report_asset() -> Any:
         rel_path = (request.args.get("path") or "").strip()
         if not rel_path:
-            return jsonify({"ok": False, "error": "path 不能为空"}), 400
+            return jsonify({"ok": False, "error": "path is required"}), 400
+        if rel_path.startswith(("http://", "https://")):
+            remote_asset = deps.fetch_remote_report_asset(rel_path)
+            if remote_asset is None:
+                return jsonify({"ok": False, "error": f"failed to fetch remote asset: {rel_path}"}), 404
+            body, content_type = remote_asset
+            return Response(body, mimetype=content_type)
         target = deps.resolve_report_asset_path(rel_path)
         if target is None:
-            return jsonify({"ok": False, "error": f"文件不存在或路径非法: {rel_path}"}), 404
+            return jsonify({"ok": False, "error": f"file not found or path is invalid: {rel_path}"}), 404
         return send_file(target)
 
     @app.post("/api/stop_task")
@@ -150,4 +157,3 @@ def register_routes(app: Flask, deps: ApiDeps) -> None:
         except Exception:
             lines = 200
         return jsonify({"ok": True, "file": str(deps.remote_ws_log_file), "lines": deps.read_remote_ws_log_lines(lines)})
-

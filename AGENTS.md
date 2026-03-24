@@ -150,7 +150,7 @@ When frontend assets change, keep in mind the runtime app serves static files fr
 ### Start backend
 
 ```powershell
-python .\desktop_web_app.py
+uv run python .\desktop_web_app.py
 ```
 
 ### Start frontend dev server
@@ -169,10 +169,17 @@ yarn dev
 ### Run tests directly
 
 ```powershell
-pytest tests/
-pytest tests/ -m smoke
-pytest tests/ -m "lysora and smoke"
-pytest tests/ -m ruijieCloud
+uv run pytest tests/
+uv run pytest tests/ -m smoke
+uv run pytest tests/ -m "lysora and smoke"
+uv run pytest tests/ -m ruijieCloud
+```
+
+### Run tests with helper script
+
+```powershell
+.\run_tests_and_allure.ps1 -Suite smoke
+.\run_tests_and_allure.ps1 -Suite full -Component lysora -OpenReport
 ```
 
 ### Frontend build
@@ -180,6 +187,13 @@ pytest tests/ -m ruijieCloud
 ```powershell
 cd .\web-ui
 yarn build
+```
+
+### Package desktop app
+
+```powershell
+uv sync
+.\build_web_ui.bat
 ```
 
 ## Environment Assumptions

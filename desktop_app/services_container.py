@@ -27,6 +27,7 @@ from .remote_ws_service import remote_ws_log as remote_ws_log_impl
 from .remote_ws_service import remote_ws_status as remote_ws_status_impl
 from .remote_ws_service import start_remote_ws_if_needed as start_remote_ws_if_needed_impl
 from .report_service import get_task_report_data as get_task_report_data_impl
+from .report_service import fetch_remote_report_asset as fetch_remote_report_asset_impl
 from .report_service import resolve_report_asset_path as resolve_report_asset_path_impl
 from .report_service import save_task_report_to_db as save_task_report_to_db_impl
 from .report_service import task_has_report as task_has_report_impl
@@ -126,6 +127,9 @@ class DesktopServiceContainer:
             runtime_root=self.runtime_root,
             project_root=self.project_root,
         )
+
+    def fetch_remote_report_asset(self, asset_url: str) -> tuple[bytes, str] | None:
+        return fetch_remote_report_asset_impl(asset_url, env_int=self.env_int)
 
     def task_has_report(self, task_id: str) -> bool:
         return task_has_report_impl(task_id, task_report_dir=self.task_report_dir)
@@ -396,6 +400,7 @@ class DesktopServiceContainer:
             task_report_paths=self.task_report_paths,
             get_task_report_data=self.get_task_report_data,
             resolve_report_asset_path=self.resolve_report_asset_path,
+            fetch_remote_report_asset=self.fetch_remote_report_asset,
             stop_task=self.stop_task,
             get_device_status=self.get_device_status,
             open_report=self.open_report,
