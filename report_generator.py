@@ -161,5 +161,7 @@ function toggle(id){{
 
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(html, encoding="utf-8")
+    tmp_output_path = output_path.with_suffix(f"{output_path.suffix}.tmp")
+    tmp_output_path.write_text(html, encoding="utf-8")
+    tmp_output_path.replace(output_path)
     return True

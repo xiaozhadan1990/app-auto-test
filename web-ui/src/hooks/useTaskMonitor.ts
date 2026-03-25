@@ -39,7 +39,7 @@ function useTaskMonitor({
   }, [taskHistory, historyStatusFilter]);
 
   const shouldPollTaskStatus = activeTab === "results" && Boolean(currentTaskId);
-  const shouldPollTaskHistory = shouldPollTaskStatus;
+  const shouldPollTaskHistory = Boolean(currentTaskId) && (activeTab === "results" || activeTab === "report");
 
   const refreshTaskHistory = async () => {
     const res = await getTaskHistory({

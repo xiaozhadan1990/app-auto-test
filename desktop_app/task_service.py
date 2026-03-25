@@ -18,6 +18,34 @@ class TaskRuntime:
     device_running_task: dict[str, str]
 
 
+def _sync_task_report_artifacts(
+    *,
+    task_id: str,
+    task_results: Path,
+    task_report: Path,
+    test_results_file: Path,
+    report_html_file: Path,
+    save_task_report_to_db: Callable[[str, Path], bool],
+) -> tuple[bool, list[str]]:
+    report_ok = task_report.exists()
+    sync_errors: list[str] = []
+
+    if report_ok:
+        try:
+            shutil.copyfile(task_report, report_html_file)
+            if task_results.exists():
+                shutil.copyfile(task_results, test_results_file)
+        except Exception as exc:
+            sync_errors.append(f"copy latest report failed: {exc}")
+
+    if task_results.exists():
+        report_data_ok = save_task_report_to_db(task_id, task_results)
+        if not report_data_ok:
+            sync_errors.append("report data save failed")
+
+    return report_ok, sync_errors
+
+
 def _read_log_tail(log_path: Path, max_bytes: int = 120_000) -> str:
     if max_bytes <= 0 or not log_path.exists():
         return ""
@@ -138,15 +166,75 @@ def run_tests(
     insert_task_history(task_id, device, app_key, suite, test_packages, str(log_path))
     set_device_status(device, "running", task_id=task_id, message="任务执行中")
 
+    initial_report_ok, initial_sync_errors = _sync_task_report_artifacts(
+        task_id=task_id,
+        task_results=task_results,
+        task_report=task_report,
+        test_results_file=test_results_file,
+        report_html_file=report_html_file,
+        save_task_report_to_db=save_task_report_to_db,
+    )
+    if initial_report_ok or initial_sync_errors:
+        initial_output = (
+            f"HTML report generated: {safe_display_path(task_report)}"
+            if initial_report_ok
+            else "HTML report waiting for first case result"
+        )
+        if initial_sync_errors:
+            initial_output = f"{initial_output}; {'; '.join(initial_sync_errors)}"
+        with runtime.lock:
+            info = runtime.tasks.get(task_id)
+            if info is not None:
+                info["allure_exit_code"] = 0 if initial_report_ok else None
+                info["allure_output"] = initial_output
+
     def _watch_task() -> None:
         exit_code: int | None = None
+        last_results_mtime_ns = 0
+        last_report_mtime_ns = 0
+        sync_errors: list[str] = []
+
+        def _sync_if_report_changed() -> None:
+            nonlocal last_results_mtime_ns, last_report_mtime_ns, sync_errors
+            try:
+                results_mtime_ns = task_results.stat().st_mtime_ns if task_results.exists() else 0
+                report_mtime_ns = task_report.stat().st_mtime_ns if task_report.exists() else 0
+            except Exception:
+                return
+            if results_mtime_ns == last_results_mtime_ns and report_mtime_ns == last_report_mtime_ns:
+                return
+            report_ok, current_errors = _sync_task_report_artifacts(
+                task_id=task_id,
+                task_results=task_results,
+                task_report=task_report,
+                test_results_file=test_results_file,
+                report_html_file=report_html_file,
+                save_task_report_to_db=save_task_report_to_db,
+            )
+            last_results_mtime_ns = results_mtime_ns
+            last_report_mtime_ns = report_mtime_ns
+            sync_errors = current_errors
+            with runtime.lock:
+                info = runtime.tasks.get(task_id)
+                if info is not None:
+                    info["allure_exit_code"] = 0 if report_ok else None
+                    info["allure_output"] = (
+                        f"HTML report generated: {safe_display_path(task_report)}"
+                        if report_ok
+                        else "HTML report waiting for first case result"
+                    )
+                    if current_errors:
+                        info["allure_output"] = f"{info['allure_output']}; {'; '.join(current_errors)}"
+
         try:
             with log_path.open("w", encoding="utf-8") as fp:
                 if process.stdout is not None:
                     for line in process.stdout:
                         fp.write(line)
                         fp.flush()
+                        _sync_if_report_changed()
                 exit_code = process.wait()
+                _sync_if_report_changed()
         except Exception as exc:
             with runtime.lock:
                 info = runtime.tasks.get(task_id)
@@ -158,7 +246,6 @@ def run_tests(
             set_device_status(device, "failed", task_id=task_id, message=str(exc))
             return
 
-        report_ok = False
         post_errors: list[str] = []
         try:
             report_ok = task_report.exists()
@@ -166,28 +253,30 @@ def run_tests(
                 from report_generator import generate_report
 
                 report_ok = generate_report(task_results, task_report)
+            report_ok, current_sync_errors = _sync_task_report_artifacts(
+                task_id=task_id,
+                task_results=task_results,
+                task_report=task_report,
+                test_results_file=test_results_file,
+                report_html_file=report_html_file,
+                save_task_report_to_db=save_task_report_to_db,
+            )
             allure_output = (
                 f"HTML report generated: {safe_display_path(task_report)}"
                 if report_ok
                 else "HTML report generate failed"
             )
-            if report_ok:
-                try:
-                    shutil.copyfile(task_report, report_html_file)
-                    if task_results.exists():
-                        shutil.copyfile(task_results, test_results_file)
-                except Exception as exc:
-                    post_errors.append(f"copy latest report failed: {exc}")
-            report_data_ok = save_task_report_to_db(task_id, task_results)
-            if not report_data_ok:
-                post_errors.append("report data save failed")
+            post_errors.extend(sync_errors)
+            post_errors.extend(current_sync_errors)
         except Exception as exc:
+            report_ok = False
             allure_output = "report post-process failed"
             post_errors.append(str(exc))
 
         allure_code = 0 if report_ok else 1
-        if post_errors:
-            allure_output = f"{allure_output}; {'; '.join(post_errors)}"
+        deduped_errors = list(dict.fromkeys(post_errors))
+        if deduped_errors:
+            allure_output = f"{allure_output}; {'; '.join(deduped_errors)}"
 
         with runtime.lock:
             info = runtime.tasks.get(task_id)

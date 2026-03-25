@@ -117,6 +117,24 @@ _load_local_env_file()
 _report_store = SessionReportStore(project_root=PROJECT_ROOT)
 
 
+def _write_report_snapshot() -> None:
+    payload = _report_store.build_payload()
+    results_file = _results_file()
+    results_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp_results_file = results_file.with_suffix(f"{results_file.suffix}.tmp")
+    tmp_results_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_results_file.replace(results_file)
+
+    try:
+        from report_generator import generate_report
+
+        report_file = _report_file()
+        report_file.parent.mkdir(parents=True, exist_ok=True)
+        generate_report(results_file, report_file)
+    except Exception:
+        pass
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "case_name(name): custom display name for reports")
     config.addinivalue_line("markers", "smoke: smoke tests")
@@ -130,6 +148,10 @@ def ensure_report_dirs() -> None:
     REPORTS_ROOT.mkdir(parents=True, exist_ok=True)
     SCREENSHOTS_ROOT.mkdir(parents=True, exist_ok=True)
     VIDEOS_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    _write_report_snapshot()
 
 
 @pytest.fixture(scope="session")
@@ -232,6 +254,7 @@ def record_test_video(driver, request):
         video_bytes = b64decode(video_base64)
         video_path.write_bytes(video_bytes)
         _report_store.attach_artifact(request.node.nodeid, "video", video_path)
+        _write_report_snapshot()
         if allure is not None:
             allure.attach(
                 video_bytes,
@@ -275,19 +298,8 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
     if report.when != "call":
         return
     _report_store.add_result(report)
+    _write_report_snapshot()
 
 
 def pytest_sessionfinish(session, exitstatus) -> None:
-    payload = _report_store.build_payload()
-    results_file = _results_file()
-    results_file.parent.mkdir(parents=True, exist_ok=True)
-    results_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    try:
-        from report_generator import generate_report
-
-        report_file = _report_file()
-        report_file.parent.mkdir(parents=True, exist_ok=True)
-        generate_report(results_file, report_file)
-    except Exception:
-        pass
+    _write_report_snapshot()

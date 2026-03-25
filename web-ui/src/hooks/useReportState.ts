@@ -39,6 +39,7 @@ function useReportState({ activeTab, taskHistory, msgApi }: UseReportStateOption
     [taskHistory, reportTaskId]
   );
   const shouldLoadReportData = activeTab === "report" && Boolean(reportTaskId);
+  const shouldPollReportData = shouldLoadReportData && selectedReportTask?.status === "running";
   const reportTablePagination = useMemo(
     () => ({
       current: reportPagination.page,
@@ -116,6 +117,14 @@ function useReportState({ activeTab, taskHistory, msgApi }: UseReportStateOption
     if (!shouldLoadReportData || !reportTaskId) return;
     void refreshTaskReportData(reportTaskId);
   }, [reportCaseStatusFilter, reportPage, reportPageSize, reportTaskId, shouldLoadReportData]);
+
+  useEffect(() => {
+    if (!shouldPollReportData || !reportTaskId) return;
+    const timer = window.setInterval(() => {
+      void refreshTaskReportData(reportTaskId);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [reportTaskId, shouldPollReportData, reportCaseStatusFilter, reportPage, reportPageSize]);
 
   return {
     reportTaskId,
