@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Card, Col, List, message, Row, Select, Space, Table, Tabs, Typography, Tag } from "antd";
+import { Button, Card, message, Select, Space, Tabs, Typography, Tag } from "antd";
 import type { CSSProperties } from "react";
 import {
   fallbackPackageLabel,
@@ -16,7 +16,6 @@ import {
   normalizePackageQueue,
   normalizePackageValue,
   renderBrand,
-  resolvePackageLabel,
 } from "./lib/appHelpers";
 import {
   getAppOptions,
@@ -42,9 +41,14 @@ import type {
   TaskReportSummary,
   TestPackageOption,
 } from "./types/app";
+import DevicesTab from "./components/DevicesTab";
+import ReportTab from "./components/ReportTab";
+import ResultsTab from "./components/ResultsTab";
+import RunnerTab from "./components/RunnerTab";
+import StartupAlert from "./components/StartupAlert";
 
 function App() {
-  // 涓婚〉闈㈢粍浠讹細璐熻矗璁惧绠＄悊銆佷换鍔℃墽琛屻€佺粨鏋滀笌鎶ュ憡灞曠ず銆?
+  // 主页面组件：负责设备管理、任务执行、结果与报告展示。
   const [msgApi, contextHolder] = message.useMessage();
   const [activeTab, setActiveTab] = useState("devices");
   const [devices, setDevices] = useState<Device[]>([]);
@@ -56,7 +60,7 @@ function App() {
   const [suite, setSuite] = useState("all");
   const [executionPackages, setExecutionPackages] = useState<string[]>([]);
   const [selectedExecutionIndex, setSelectedExecutionIndex] = useState<number>(-1);
-  const [logText, setLogText] = useState("绛夊緟鎵ц...");
+  const [logText, setLogText] = useState("等待执行...");
   const [startupMissing, setStartupMissing] = useState<string[]>([]);
   const [startupReady, setStartupReady] = useState(false);
   const [deviceRuntimeMap, setDeviceRuntimeMap] = useState<Record<string, DeviceRuntimeStatus>>({});
@@ -181,7 +185,7 @@ function App() {
       { title: "型号", dataIndex: "model" },
       { title: "系统", dataIndex: "os_version" },
       {
-        title: "鎼存梻鏁ら悧鍫熸拱",
+        title: "应用版本",
         render: (_: unknown, d: Device) =>
           `Lysora: ${(d.app_versions && d.app_versions.lysora) || "-"} / Ruijie: ${
             (d.app_versions && d.app_versions.ruijieCloud) || "-"
@@ -289,7 +293,7 @@ function App() {
 
 
   const refreshDeviceRuntime = async (deviceSerial: string) => {
-    // 鍒锋柊鍗曚釜璁惧鐨勫疄鏃朵换鍔＄姸鎬佸苟鏇存柊缂撳瓨銆?
+    // 刷新单个设备的实时任务状态并更新缓存。
     const res = await getDeviceRuntime(deviceSerial);
     if (res.ok && res.device_status) {
       setDeviceRuntimeMap((old) => {
@@ -304,7 +308,7 @@ function App() {
   };
 
   const refreshTaskHistory = async () => {
-    // 鎸夊綋鍓嶇瓫閫夋潯浠舵媺鍙栦换鍔″巻鍙诧紝骞跺悓姝ュ彲閫夋姤鍛婁换鍔°€?
+    // 按当前筛选条件拉取任务历史，并同步可选报告任务。
     const res = await getTaskHistory({
       limit: 30,
       device: selectedDevice,
@@ -321,7 +325,7 @@ function App() {
   };
 
   const refreshTaskReportData = async (taskId?: string) => {
-    // 鎷夊彇骞舵洿鏂颁换鍔℃姤鍛婃憳瑕佷笌鐢ㄤ緥鏄庣粏銆?
+    // 拉取并更新任务报告摘要与用例明细。
     const targetTaskId = taskId || reportTaskId;
     if (!targetTaskId) {
       setReportSummary((old) => (old === undefined ? old : undefined));
@@ -363,18 +367,18 @@ function App() {
     } catch (err) {
       setReportSummary((old) => (old === undefined ? old : undefined));
       setReportCases((old) => (old.length === 0 ? old : []));
-      msgApi.error(`鍔犺浇浠诲姟鎶ュ憡澶辫触: ${String(err)}`);
+      msgApi.error(`加载任务报告失败: ${String(err)}`);
     } finally {
       setReportLoading(false);
     }
   };
 
   const refreshDevices = async () => {
-    // 鍒锋柊璁惧鍒楄〃锛屽悓鏃惰ˉ榻愭瘡鍙拌澶囩殑杩愯鐘舵€併€?
-    setLogText("姝ｅ湪鍒锋柊璁惧...");
+    // 刷新设备列表，同时补齐每台设备的运行状态。
+    setLogText("正在刷新设备...");
     const res = await listDevices();
     if (!res.ok) {
-      setLogText(`鍒锋柊璁惧澶辫触:\n${res.error || "unknown error"}`);
+      setLogText(`刷新设备失败:\n${res.error || "unknown error"}`);
       return;
     }
     const list = res.devices || [];
@@ -400,7 +404,7 @@ function App() {
   };
 
   const refreshApps = async () => {
-    // 鑾峰彇搴旂敤閫夐」骞舵牎姝ｅ綋鍓嶉€変腑椤广€?
+    // 获取应用选项并校正当前选中项。
     const res = await getAppOptions();
     setApps(res || []);
     if (res?.length) {
@@ -409,7 +413,7 @@ function App() {
   };
 
   const refreshPackages = async (appKey?: string) => {
-    // 鏍规嵁搴旂敤鍒锋柊鍙墽琛岀敤渚嬪寘锛屽苟缁存姢鎵ц闃熷垪閫夋嫨鐘舵€併€?
+    // 根据应用刷新可执行用例包，并维护执行队列选择状态。
     const targetApp = appKey || selectedApp;
     if (!targetApp) return;
     const res = await listTestPackages(targetApp);
@@ -445,7 +449,7 @@ function App() {
   };
 
   const addSelectedCase = () => {
-    // 灏嗗綋鍓嶉€変腑鐨勭敤渚嬪寘鍔犲叆寰呮墽琛屽垪琛紙閬垮厤閲嶅锛夈€?
+    // 将当前选中的用例包加入待执行列表，避免重复。
     const selectedValue = normalizePackageValue(selectedPackage);
     if (!selectedValue) return;
     if (executionPackages.includes(selectedValue)) {
@@ -459,7 +463,7 @@ function App() {
   };
 
   const addAllCases = () => {
-    // 鎵归噺灏嗗彲閫夌敤渚嬪姞鍏ュ緟鎵ц鍒楄〃锛岃嚜鍔ㄨ烦杩囬噸澶嶉」銆?
+    // 批量将可选用例加入待执行列表，自动跳过重复项。
     let added = 0;
     let skipped = 0;
     const next = normalizePackageQueue(executionPackages);
@@ -477,7 +481,7 @@ function App() {
   };
 
   const removeSelectedCase = () => {
-    // 绉婚櫎褰撳墠楂樹寒閫変腑鐨勫緟鎵ц鐢ㄤ緥銆?
+    // 移除当前高亮选中的待执行用例。
     if (selectedExecutionIndex < 0 || selectedExecutionIndex >= executionPackages.length) return;
     const next = executionPackages.filter((_, idx) => idx !== selectedExecutionIndex);
     setExecutionPackages(normalizePackageQueue(next));
@@ -485,7 +489,7 @@ function App() {
   };
 
   const moveSelectedCase = (offset: number) => {
-    // 鎸夌粰瀹氬亸绉婚噺璋冩暣寰呮墽琛岀敤渚嬮『搴忋€?
+    // 按给定偏移量调整待执行用例顺序。
     const from = selectedExecutionIndex;
     const to = from + offset;
     if (from < 0 || from >= executionPackages.length) return;
@@ -498,36 +502,36 @@ function App() {
   };
 
   const runTests = async () => {
-    // 鏍￠獙鎵ц鍓嶆彁骞跺垱寤烘祴璇曚换鍔°€?
+    // 校验执行前提并创建测试任务。
     try {
       const appium = await getAppiumReady();
       if (!appium.running) {
         const addr = appium.server_url || "http://127.0.0.1:4723";
         msgApi.error(`Appium 未启动（${addr}）`);
-        setLogText(`鎵ц宸插彇娑堬細Appium 鏈惎鍔╘n鍦板潃: ${addr}\n璇︽儏: ${appium.error || "unknown error"}`);
+        setLogText(`执行已取消：Appium 未启动\n地址: ${addr}\n详情: ${appium.error || "unknown error"}`);
         setActiveTab("results");
         return;
       }
       if (!executionPackages.length) {
-        msgApi.error("璇峰厛娣诲姞鑷冲皯涓€涓緟鎵ц鐢ㄤ緥");
+        msgApi.error("请先添加至少一个待执行用例");
         return;
       }
       if (!selectedDevice) {
-        msgApi.error("璇峰厛閫夋嫨鎵嬫満璁惧");
+        msgApi.error("请先选择手机设备");
         return;
       }
       if (!selectedApp) {
-        msgApi.error("璇峰厛閫夋嫨搴旂敤");
+        msgApi.error("请先选择应用");
         return;
       }
       if (isSelectedDeviceRunning) {
-        msgApi.warning("璇ユ墜鏈哄凡鏈変换鍔″湪杩愯涓紝涓嶈兘閲嶅鍚姩");
+        msgApi.warning("该手机已有任务在运行中，不能重复启动");
         return;
       }
 
       setActiveTab("results");
       setLogText(
-        `姝ｅ湪鎵ц娴嬭瘯锛岃绋嶅€?..\n鎵ц椤哄簭:\n${executionPackages
+        `正在执行测试，请稍候...\n执行顺序:\n${executionPackages
           .map((p, i) => `${i + 1}. ${p}`)
           .join("\n")}`
       );
@@ -538,7 +542,7 @@ function App() {
         suite,
       });
       if (!res.ok) {
-        setLogText(`鎵ц澶辫触\n\n${res.error || "unknown error"}`);
+        setLogText(`执行失败\n\n${res.error || "unknown error"}`);
         return;
       }
       if (res.task_id) {
@@ -546,23 +550,23 @@ function App() {
         await refreshDeviceRuntime(selectedDevice);
         await refreshTaskHistory();
         msgApi.success(`任务已启动: ${res.task_id}`);
-        setLogText((old) => `${old}\n\n浠诲姟宸插垱寤? ${res.task_id}`);
+        setLogText((old) => `${old}\n\n任务已创建: ${res.task_id}`);
       }
     } catch (err) {
-      msgApi.error("鍚姩浠诲姟澶辫触");
-      setLogText(`鎵ц澶辫触\n\n${String(err)}`);
+      msgApi.error("启动任务失败");
+      setLogText(`执行失败\n\n${String(err)}`);
     }
   };
 
   const stopCurrentTask = async () => {
-    // 璇锋眰鍚庣鍋滄褰撳墠璁惧涓婄殑浠诲姟锛屽苟鍒锋柊鐘舵€併€?
+    // 请求后端停止当前设备上的任务，并刷新状态。
     if (!selectedDevice) return;
     const res = await stopTask({
       task_id: currentTaskId,
       device: selectedDevice,
     });
     if (!res.ok) {
-      msgApi.error(res.error || "鍋滄浠诲姟澶辫触");
+      msgApi.error(res.error || "停止任务失败");
       return;
     }
     msgApi.info("停止请求已发送");
@@ -571,17 +575,17 @@ function App() {
   };
 
   const openReport = async () => {
-    // 鎵撳紑鏈€杩戜竴娆＄敓鎴愮殑娴嬭瘯鎶ュ憡銆?
+    // 打开最近一次生成的测试报告。
     const res = await openReportRequest();
     if (!res.ok) {
-      msgApi.error(res.error || "鎵撳紑鎶ュ憡澶辫触");
+      msgApi.error(res.error || "打开报告失败");
     }
   };
 
   const refreshSelectedDeviceStatus = async () => {
-    // 鎵嬪姩鍒锋柊褰撳墠閫変腑璁惧鐘舵€侊紝骞跺悓姝ュ綋鍓嶄换鍔?ID銆?
+    // 手动刷新当前选中设备状态，并同步当前任务 ID。
     if (!selectedDevice) {
-      msgApi.warning("璇峰厛閫夋嫨鎵嬫満璁惧");
+      msgApi.warning("请先选择手机设备");
       return;
     }
     const s = await refreshDeviceRuntime(selectedDevice);
@@ -594,23 +598,23 @@ function App() {
 
   const refreshCurrentTaskStatus = async (options?: { silent?: boolean }) => {
     const silent = Boolean(options?.silent);
-    // 鎷夊彇褰撳墠浠诲姟鐘舵€佷笌鏃ュ織杈撳嚭锛屽苟鍦ㄧ粨鏉熷悗鍋氭敹灏惧埛鏂般€?
+    // 拉取当前任务状态与日志输出，并在结束后做收尾刷新。
     if (!currentTaskId) {
       if (silent) {
         return;
       }
-      msgApi.warning("褰撳墠娌℃湁鍙埛鏂扮殑浠诲姟");
+      msgApi.warning("当前没有可刷新的任务");
       return;
     }
     try {
       const res = await getTaskStatus(currentTaskId);
       if (!res.ok) return;
       setLogText(
-        `浠诲姟: ${res.task_id}\n鐘舵€? ${formatRunStatus(res.status)}\nPytest缁撴灉: ${formatExitCode(
+        `任务: ${res.task_id}\n状态: ${formatRunStatus(res.status)}\nPytest结果: ${formatExitCode(
           res.pytest_exit_code
-        )}\n鎶ュ憡缁撴灉: ${formatExitCode(res.allure_exit_code)}\n\n${res.pytest_output || ""}\n\n--- 鎶ュ憡杈撳嚭 ---\n${
+        )}\n报告结果: ${formatExitCode(res.allure_exit_code)}\n\n${res.pytest_output || ""}\n\n--- 报告输出 ---\n${
           res.allure_output || ""
-        }${res.error ? `\n\n閿欒: ${res.error}` : ""}`
+        }${res.error ? `\n\n错误: ${res.error}` : ""}`
       );
       if (res.status && ["success", "failed", "stopped"].includes(res.status)) {
         setCurrentTaskId(undefined);
@@ -627,7 +631,7 @@ function App() {
   };
 
   useEffect(() => {
-    // 椤甸潰棣栨鍔犺浇锛氭媺鍙栧惎鍔ㄤ緷璧栦俊鎭€佸簲鐢ㄣ€佽澶囦笌鍘嗗彶鏁版嵁銆?
+    // 页面首次加载：拉取启动依赖信息、应用、设备与历史数据。
     (async () => {
       try {
         const startup = await getStartupInfo();
@@ -641,7 +645,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // 搴旂敤鍒囨崲鍚庯紝鑷姩鍒锋柊瀵瑰簲鐨勭敤渚嬪寘銆?
+    // 应用切换后，自动刷新对应的用例包。
     if (selectedApp) {
       refreshPackages(selectedApp);
     }
@@ -652,13 +656,13 @@ function App() {
   }, [reportTaskId, reportCaseStatusFilter]);
 
   useEffect(() => {
-    // 璁惧鎴栧巻鍙茬瓫閫夊彉鏇村悗锛岃嚜鍔ㄥ埛鏂颁换鍔″巻鍙层€?
+    // 设备或历史筛选变化后，自动刷新任务历史。
     if (!startupReady) return;
     refreshTaskHistory();
   }, [historyStatusFilter, selectedDevice, startupReady]);
 
   useEffect(() => {
-    // 璁惧鍒囨崲鍚庯紝鑷姩鍒锋柊璁惧鐘舵€佸苟鎭㈠杩愯涓殑浠诲姟涓婁笅鏂囥€?
+    // 设备切换后，自动刷新设备状态并恢复运行中的任务上下文。
     if (!selectedDevice) return;
     refreshDeviceRuntime(selectedDevice).then((s) => {
       if (s?.status === "running" && s.task_id) {
@@ -677,7 +681,7 @@ function App() {
   }, [selectedDevice, shouldPollDeviceStatus]);
 
   useEffect(() => {
-    // 鏈夊綋鍓嶄换鍔℃椂锛岃嚜鍔ㄨЕ鍙戜竴娆′换鍔＄姸鎬佸埛鏂般€?
+    // 有当前任务时，自动触发一次任务状态刷新。
     if (!shouldPollTaskStatus) return;
     void refreshCurrentTaskStatus({ silent: true });
     const timer = window.setInterval(() => {
@@ -687,7 +691,7 @@ function App() {
   }, [currentTaskId, shouldPollTaskStatus]);
 
   useEffect(() => {
-    // 娴犲懎婀紒鎾寸亯妞ゅ吀绗栫€涙ê婀潻鎰攽娴犺濮熼弮璁圭礉閹靛秴鎳嗛張鐔糕偓褍鍩涢弬鏉垮坊閸欐彃鍨悰顭掔礉闁灝鍘ら崗鏈电铂妞ょ敻娼伴惃鍕￥閺佸牐顕Ч鍌樷偓?
+    // 结果页存在当前任务时，自动轮询任务历史。
     if (!shouldPollTaskHistory) return;
     const timer = window.setInterval(() => {
       void refreshTaskHistory();
@@ -696,7 +700,7 @@ function App() {
   }, [historyStatusFilter, shouldPollTaskHistory]);
 
   useEffect(() => {
-    // 鎶ュ憡浠诲姟鍒囨崲鍚庯紝鑷姩鍔犺浇瀵瑰簲鎶ュ憡鏁版嵁銆?
+    // 报告任务切换后，自动加载对应报告数据。
     if (!shouldLoadReportData || !reportTaskId) return;
     refreshTaskReportData(reportTaskId);
   }, [reportCaseStatusFilter, reportPage, reportPageSize, reportTaskId, shouldLoadReportData]);
@@ -705,368 +709,131 @@ function App() {
     <div style={{ width: "calc(100% - 24px)", maxWidth: "none", margin: "8px 12px 16px", padding: 0 }}>
       {contextHolder}
       <Typography.Title level={3} style={{ marginTop: 4 }}>
-        绉诲姩鑷姩鍖栨祴璇曟闈㈢
+        移动自动化测试桌面端
       </Typography.Title>
 
-      {startupMissing.length > 0 && (
-        <Alert
-          style={{ marginBottom: 12 }}
-          type="warning"
-          showIcon
-          message={`系统缺少依赖: ${startupMissing.join(", ")}，请先安装并加入 PATH。`}
-        />
-      )}
+      <StartupAlert startupMissing={startupMissing} />
 
       <Card>
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
           items={[
-            { key: "devices", label: "鎵嬫満缁堢" },
-            { key: "runner", label: "鐢ㄤ緥鎵ц" },
-            { key: "results", label: "鎵ц缁撴灉" },
-            { key: "report", label: "娴嬭瘯鎶ュ憡" },
+            { key: "devices", label: "手机终端" },
+            { key: "runner", label: "用例执行" },
+            { key: "results", label: "执行结果" },
+            { key: "report", label: "测试报告" },
           ]}
         />
       </Card>
 
       {activeTab === "devices" && (
-        <Card title="当前连接的手机终端">
-          <Space style={{ marginBottom: 12 }}>
-            <Button onClick={refreshDevices}>鍒锋柊璁惧</Button>
-          </Space>
-          <Table<Device>
-            rowKey="serial"
-            pagination={false}
-            dataSource={devices}
-            columns={deviceTableColumns}
-          />
-        </Card>
+        <DevicesTab devices={devices} deviceTableColumns={deviceTableColumns} onRefresh={refreshDevices} />
       )}
 
       {activeTab === "runner" && (
-        <Card title="閫夋嫨缁堢銆佹祴璇曠敤渚嬪苟鎵ц">
-          <Row gutter={[12, 12]}>
-            <Col span={6}>
-              <label>鎵嬫満璁惧</label>
-              <Select
-                style={{ width: "100%" }}
-                value={selectedDevice}
-                onChange={setSelectedDevice}
-                options={deviceSelectOptions}
-              />
-            </Col>
-            <Col span={6}>
-              <label>搴旂敤</label>
-              <Select
-                style={{ width: "100%" }}
-                value={selectedApp}
-                onChange={setSelectedApp}
-                options={appSelectOptions}
-              />
-            </Col>
-            <Col span={6}>
-              <label>可选用例</label>
-              <Select
-                style={{ width: "100%" }}
-                value={selectedPackage}
-                onChange={(value) => setSelectedPackage(normalizePackageValue(value))}
-                options={packageSelectOptions}
-              />
-            </Col>
-            <Col span={6}>
-              <label>测试范围</label>
-              <Select
-                style={{ width: "100%" }}
-                value={suite}
-                onChange={setSuite}
-                options={suiteOptions}
-              />
-            </Col>
-          </Row>
-
-
-          <Space style={{ marginTop: 12 }}>
-            <Button htmlType="button" onClick={refreshSelectedDeviceStatus}>刷新设备状态</Button>
-            <Button htmlType="button" onClick={() => refreshPackages()}>刷新用例包</Button>
-            <Button
-              htmlType="button"
-              type="primary"
-              onClick={(ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                void runTests();
-              }}
-              disabled={isSelectedDeviceRunning}
-            >
-              鍚姩鎵ц
-            </Button>
-            <Button htmlType="button" danger onClick={stopCurrentTask} disabled={!isSelectedDeviceRunning}>
-              鍋滄浠诲姟
-            </Button>
-          </Space>
-
-          <Card
-            size="small"
-            style={{ marginTop: 12, background: "#fafafa" }}
-            title="寰呮墽琛岀敤渚嬶紙鎸夊垪琛ㄩ『搴忔墽琛岋級"
-            extra={
-              <Space wrap>
-                <Button size="small" onClick={addSelectedCase}>
-                  娣诲姞
-                </Button>
-                <Button size="small" onClick={addAllCases}>
-                  娣诲姞鍏ㄩ儴
-                </Button>
-                <Button size="small" onClick={removeSelectedCase}>
-                  绉婚櫎
-                </Button>
-                <Button size="small" onClick={() => moveSelectedCase(-1)}>
-                  涓婄Щ
-                </Button>
-                <Button size="small" onClick={() => moveSelectedCase(1)}>
-                  涓嬬Щ
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() => {
-                    setExecutionPackages([]);
-                    setSelectedExecutionIndex(-1);
-                  }}
-                >
-                  娓呯┖
-                </Button>
-              </Space>
-            }
-          >
-            <List
-              bordered
-              dataSource={executionPackages}
-              renderItem={(item, idx) => (
-                <List.Item
-                  onClick={() => setSelectedExecutionIndex(idx)}
-                  style={{
-                    cursor: "pointer",
-                    background: selectedExecutionIndex === idx ? "#e8f0fe" : undefined,
-                  }}
-                >
-                  {idx + 1}. {resolvePackageLabel(item, packageLabelMap)}
-                </List.Item>
-              )}
-            />
-          </Card>
-
-          <Row gutter={10} style={{ marginTop: 12 }}>
-            <Col span={5}>
-              <Card size="small" title="鎵嬫満鍝佺墝" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
-                {renderBrand(currentDevice?.brand, 56)}
-              </Card>
-            </Col>
-            <Col span={5}>
-              <Card size="small" title="璁惧鍨嬪彿" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
-                <span style={summaryValueStyle}>{currentDevice?.model || "-"}</span>
-              </Card>
-            </Col>
-            <Col span={5}>
-              <Card size="small" title="绯荤粺鐗堟湰" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
-                <span style={summaryValueStyle}>{currentDevice?.os_version || "-"}</span>
-              </Card>
-            </Col>
-            <Col span={4}>
-              <Card size="small" title="Lysora 鐗堟湰" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
-                <span style={summaryValueStyle}>
-                  {(currentDevice?.app_versions && currentDevice.app_versions.lysora) || "-"}
-                </span>
-              </Card>
-            </Col>
-            <Col span={5}>
-              <Card size="small" title="ruijieCloud 鐗堟湰" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
-                <span style={summaryValueStyle}>
-                  {(currentDevice?.app_versions && currentDevice.app_versions.ruijieCloud) || "-"}
-                </span>
-              </Card>
-            </Col>
-          </Row>
-        </Card>
+        <RunnerTab
+          selectedDevice={selectedDevice}
+          selectedApp={selectedApp}
+          selectedPackage={selectedPackage}
+          suite={suite}
+          deviceSelectOptions={deviceSelectOptions}
+          appSelectOptions={appSelectOptions}
+          packageSelectOptions={packageSelectOptions}
+          suiteOptions={suiteOptions}
+          isSelectedDeviceRunning={isSelectedDeviceRunning}
+          currentDevice={currentDevice}
+          packageLabelMap={packageLabelMap}
+          executionPackages={executionPackages}
+          selectedExecutionIndex={selectedExecutionIndex}
+          summaryCardStyle={summaryCardStyle}
+          summaryBodyStyle={summaryBodyStyle}
+          summaryValueStyle={summaryValueStyle}
+          onSelectDevice={setSelectedDevice}
+          onSelectApp={setSelectedApp}
+          onSelectPackage={(value) => setSelectedPackage(normalizePackageValue(value))}
+          onSelectSuite={setSuite}
+          onRefreshSelectedDeviceStatus={() => {
+            void refreshSelectedDeviceStatus();
+          }}
+          onRefreshPackages={() => {
+            void refreshPackages();
+          }}
+          onRunTests={() => {
+            void runTests();
+          }}
+          onStopCurrentTask={() => {
+            void stopCurrentTask();
+          }}
+          onSelectExecutionIndex={setSelectedExecutionIndex}
+          onAddSelectedCase={addSelectedCase}
+          onAddAllCases={addAllCases}
+          onRemoveSelectedCase={removeSelectedCase}
+          onMoveSelectedCaseUp={() => moveSelectedCase(-1)}
+          onMoveSelectedCaseDown={() => moveSelectedCase(1)}
+          onClearExecutionPackages={() => {
+            setExecutionPackages([]);
+            setSelectedExecutionIndex(-1);
+          }}
+        />
       )}
 
       {activeTab === "results" && (
-        <Card
-          title="娴嬭瘯鐢ㄤ緥缁撴灉"
-          extra={
-            <Space>
-              <Select
-                style={{ width: 150 }}
-                value={historyStatusFilter}
-                onChange={setHistoryStatusFilter}
-                options={historyStatusOptions}
-              />
-              <Button onClick={refreshTaskHistory}>刷新历史</Button>
-              <Button onClick={() => void refreshCurrentTaskStatus()} disabled={!currentTaskId}>
-                刷新任务状态
-              </Button>
-              <Button onClick={openReport}>打开最近报告</Button>
-            </Space>
-          }
-        >
-          <Table<TaskHistoryItem>
-            rowKey="task_id"
-            size="small"
-            pagination={{ pageSize: 8, hideOnSinglePage: true }}
-            dataSource={displayTaskHistory}
-            onRow={(record) => ({
-              onClick: () => {
-                setCurrentTaskId(record.task_id);
-                if (record.has_report_data) {
-                  setReportTaskId(record.task_id);
-                }
-                setActiveTab("results");
-              },
-              style: { cursor: "pointer" },
-            })}
-            columns={resultsTableColumns}
-            style={{ marginBottom: 12 }}
-          />
-          <pre
-            style={{
-              margin: 0,
-              whiteSpace: "pre-wrap",
-              background: "#0f172a",
-              color: "#e2e8f0",
-              borderRadius: 8,
-              padding: 10,
-              minHeight: 180,
-              maxHeight: 460,
-              overflow: "auto",
-              fontSize: 12,
-            }}
-          >
-            {logText}
-          </pre>
-        </Card>
+        <ResultsTab
+          historyStatusFilter={historyStatusFilter}
+          historyStatusOptions={historyStatusOptions}
+          displayTaskHistory={displayTaskHistory}
+          resultsTableColumns={resultsTableColumns}
+          currentTaskId={currentTaskId}
+          logText={logText}
+          onHistoryStatusChange={setHistoryStatusFilter}
+          onRefreshHistory={() => {
+            void refreshTaskHistory();
+          }}
+          onRefreshTaskStatus={() => {
+            void refreshCurrentTaskStatus();
+          }}
+          onOpenReport={() => {
+            void openReport();
+          }}
+          onSelectTask={(record) => {
+            setCurrentTaskId(record.task_id);
+            if (record.has_report_data) {
+              setReportTaskId(record.task_id);
+            }
+            setActiveTab("results");
+          }}
+        />
       )}
 
       {activeTab === "report" && (
-        <Card
-          title="娴嬭瘯鎶ュ憡"
-          extra={
-            <Space wrap>
-              <Select
-                style={{ width: 340 }}
-                placeholder="閫夋嫨浠诲姟"
-                value={reportTaskId}
-                onChange={(v) => setReportTaskId(v)}
-                options={reportTasks}
-              />
-              <Select
-                style={{ width: 120 }}
-                value={reportCaseStatusFilter}
-                onChange={(value) => {
-                  setReportCaseStatusFilter(value);
-                  setReportPage(1);
-                }}
-                options={reportCaseStatusOptions}
-              />
-              <Button onClick={() => refreshTaskReportData()}>鍒锋柊鎶ュ憡</Button>
-              <Button
-                disabled={!selectedReportTask?.has_report}
-                onClick={() => {
-                  if (!selectedReportTask?.has_report) return;
-                  const url = selectedReportTask.report_url || "/api/task_report/" + encodeURIComponent(selectedReportTask.task_id);
-                  window.open(url, "_blank");
-                }}
-              >
-                鎵撳紑HTML鎶ュ憡
-              </Button>
-            </Space>
-          }
-        >
-          {!reportTaskId && (
-            <Alert
-              type="info"
-              showIcon
-              message="暂无可用任务报告，请先执行至少一次测试任务。"
-              style={{ marginBottom: 12 }}
-            />
-          )}
-          {reportSummary && (
-            <Row gutter={10} style={{ marginBottom: 12 }}>
-              <Col span={4}>
-                <Card size="small" title="鎬昏">
-                  <Typography.Title level={4} style={{ margin: 0 }}>{reportSummary.total}</Typography.Title>
-                </Card>
-              </Col>
-              <Col span={4}>
-                <Card size="small" title="閫氳繃">
-                  <Typography.Title level={4} style={{ margin: 0, color: "#16a34a" }}>{reportSummary.passed}</Typography.Title>
-                </Card>
-              </Col>
-              <Col span={4}>
-                <Card size="small" title="澶辫触">
-                  <Typography.Title level={4} style={{ margin: 0, color: "#dc2626" }}>{reportSummary.failed}</Typography.Title>
-                </Card>
-              </Col>
-              <Col span={4}>
-                <Card size="small" title="璺宠繃">
-                  <Typography.Title level={4} style={{ margin: 0, color: "#d97706" }}>{reportSummary.skipped}</Typography.Title>
-                </Card>
-              </Col>
-              <Col span={4}>
-                <Card size="small" title="通过率">
-                  <Typography.Title level={4} style={{ margin: 0 }}>{(reportSummary.pass_rate || 0).toFixed(1)}%</Typography.Title>
-                </Card>
-              </Col>
-              <Col span={4}>
-                <Card size="small" title="鎬昏€楁椂">
-                  <Typography.Title level={4} style={{ margin: 0 }}>{(reportSummary.total_duration || 0).toFixed(1)}s</Typography.Title>
-                </Card>
-              </Col>
-            </Row>
-          )}
-          <Table<TaskReportCase>
-            rowKey={(r) => r.task_id + "-" + r.case_index}
-            size="small"
-            loading={reportLoading}
-            pagination={reportTablePagination}
-            dataSource={reportCases}
-            expandable={{
-              expandedRowRender: (record) => (
-                <div>
-                  <div><b>鑺傜偣:</b> {record.node_id || "-"}</div>
-                  <div style={{ marginTop: 6 }}>
-                    <b>閿欒:</b> {record.error_message || "-"}
-                  </div>
-                  <Space style={{ marginTop: 8 }}>
-                    <Button
-                      size="small"
-                      disabled={!record.screenshot_url}
-                      onClick={() => record.screenshot_url && window.open(record.screenshot_url, "_blank")}
-                    >
-                      鏌ョ湅鎴浘
-                    </Button>
-                    <Button
-                      size="small"
-                      disabled={!record.video_url}
-                      onClick={() => record.video_url && window.open(record.video_url, "_blank")}
-                    >
-                      鏌ョ湅瑙嗛
-                    </Button>
-                  </Space>
-                  {record.screenshot_url && (
-                    <div style={{ marginTop: 8 }}>
-                      <img
-                        src={record.screenshot_url}
-                        alt={record.name || "screenshot"}
-                        style={{ maxHeight: 240, maxWidth: "100%", border: "1px solid #ddd", borderRadius: 6 }}
-                      />
-                    </div>
-                  )}
-                </div>
-              ),
-            }}
-            columns={reportCaseColumns}
-          />
-        </Card>
+        <ReportTab
+          reportTaskId={reportTaskId}
+          reportTasks={reportTasks}
+          reportCaseStatusFilter={reportCaseStatusFilter}
+          reportCaseStatusOptions={reportCaseStatusOptions}
+          selectedReportTask={selectedReportTask}
+          reportSummary={reportSummary}
+          reportCases={reportCases}
+          reportLoading={reportLoading}
+          reportTablePagination={reportTablePagination}
+          reportCaseColumns={reportCaseColumns}
+          onReportTaskChange={setReportTaskId}
+          onReportCaseStatusChange={(value) => {
+            setReportCaseStatusFilter(value);
+            setReportPage(1);
+          }}
+          onRefreshReport={() => {
+            void refreshTaskReportData();
+          }}
+          onOpenHtmlReport={() => {
+            if (!selectedReportTask?.has_report) return;
+            const url =
+              selectedReportTask.report_url ||
+              "/api/task_report/" + encodeURIComponent(selectedReportTask.task_id);
+            window.open(url, "_blank");
+          }}
+        />
       )}
     </div>
   );

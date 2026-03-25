@@ -54,8 +54,7 @@ export function fallbackPackageLabel(packageValue: string): string {
   const segments = normalized.split("/");
   const fileName = segments[segments.length - 1] || normalized;
   const appKey = (segments[segments.length - 2] || "").toLowerCase();
-  const appName =
-    appKey === "lysora" ? "Lysora" : appKey === "ruijiecloud" ? "RuijieCloud" : "娴嬭瘯";
+  const appName = appKey === "lysora" ? "Lysora" : appKey === "ruijiecloud" ? "RuijieCloud" : "测试";
   const stem = fileName.replace(/\.py$/i, "").replace(/^test_/i, "");
   const readable = stem.replace(/_/g, " ").trim() || fileName;
   return `${appName}-${readable}`;
@@ -63,7 +62,7 @@ export function fallbackPackageLabel(packageValue: string): string {
 
 export function resolvePackageLabel(input: unknown, labelMap: Record<string, string>): string {
   const value = normalizePackageValue(input);
-  if (!value) return "鏈煡鐢ㄤ緥";
+  if (!value) return "未知用例";
   return labelMap[value] || fallbackPackageLabel(value);
 }
 
@@ -96,34 +95,34 @@ export function renderBrand(brand?: string, imageHeight = 36): ReactNode {
 export function formatDeviceStatus(status?: string): string {
   const s = (status || "").toLowerCase();
   if (s === "device") return "已连接";
-  if (s === "offline") return "绂荤嚎";
+  if (s === "offline") return "离线";
   if (s === "unauthorized") return "未授权";
-  if (s === "recovery") return "鎭㈠妯″紡";
+  if (s === "recovery") return "恢复模式";
   return status || "-";
 }
 
 export function formatRunStatus(status?: string): string {
   const s = (status || "").toLowerCase();
   if (s === "running") return "运行中";
-  if (s === "failed") return "澶辫触";
-  if (s === "success") return "鎴愬姛";
-  if (s === "idle") return "绌洪棽";
+  if (s === "failed") return "失败";
+  if (s === "success") return "成功";
+  if (s === "idle") return "空闲";
   if (s === "stopped") return "已停止";
-  return status || "绌洪棽";
+  return status || "空闲";
 }
 
 export function formatExitCode(code?: number | null): string {
   if (code === null || code === undefined) return "-";
-  if (code === 0) return "鎴愬姛";
-  if (code === 1) return "澶辫触";
-  return `澶辫触(閫€鍑虹爜${code})`;
+  if (code === 0) return "成功";
+  if (code === 1) return "失败";
+  return `失败（退出码 ${code}）`;
 }
 
 export function formatCaseStatus(status?: string): string {
   const s = (status || "").toLowerCase();
-  if (s === "passed") return "閫氳繃";
-  if (s === "failed") return "澶辫触";
-  if (s === "skipped") return "璺宠繃";
+  if (s === "passed") return "通过";
+  if (s === "failed") return "失败";
+  if (s === "skipped") return "跳过";
   return status || "-";
 }
 
