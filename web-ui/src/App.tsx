@@ -1,334 +1,47 @@
 ﻿import { useEffect, useMemo, useState } from "react";
+import { Alert, Button, Card, Col, List, message, Row, Select, Space, Table, Tabs, Typography, Tag } from "antd";
+import type { CSSProperties } from "react";
 import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  List,
-  message,
-  Row,
-  Select,
-  Space,
-  Table,
-  Tabs,
-  Typography,
-  Tag,
-} from "antd";
-import type { CSSProperties, ReactNode } from "react";
-
-type Device = {
-  serial: string;
-  status: string;
-  brand: string;
-  model: string;
-  os_version: string;
-  app_versions?: Record<string, string>;
-  runtime_status?: DeviceRuntimeStatus;
-};
-
-type AppOption = {
-  key: string;
-  label: string;
-};
-
-type TestPackageOption = {
-  value: string;
-  label: string;
-  tooltip?: string;
-};
-
-function normalizePackageValue(input: unknown): string | undefined {
-  if (typeof input === "string") {
-    const trimmed = input.trim();
-    return trimmed || undefined;
-  }
-  if (input && typeof input === "object") {
-    const raw = (input as { value?: unknown }).value;
-    if (typeof raw === "string") {
-      const trimmed = raw.trim();
-      return trimmed || undefined;
-    }
-  }
-  return undefined;
-}
-
-function normalizePackageQueue(input: unknown[]): string[] {
-  const seen = new Set<string>();
-  const list: string[] = [];
-  for (const item of input) {
-    const value = normalizePackageValue(item);
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    list.push(value);
-  }
-  return list;
-}
-
-function fallbackPackageLabel(packageValue: string): string {
-  const normalized = packageValue.replace(/\\/g, "/");
-  if (!normalized.endsWith(".py")) {
-    return normalized;
-  }
-  const segments = normalized.split("/");
-  const fileName = segments[segments.length - 1] || normalized;
-  const appKey = (segments[segments.length - 2] || "").toLowerCase();
-  const appName =
-    appKey === "lysora" ? "Lysora" : appKey === "ruijiecloud" ? "RuijieCloud" : "娴嬭瘯";
-  const stem = fileName.replace(/\.py$/i, "").replace(/^test_/i, "");
-  const readable = stem.replace(/_/g, " ").trim() || fileName;
-  return `${appName}-${readable}`;
-}
-
-function resolvePackageLabel(input: unknown, labelMap: Record<string, string>): string {
-  const value = normalizePackageValue(input);
-  if (!value) return "鏈煡鐢ㄤ緥";
-  return labelMap[value] || fallbackPackageLabel(value);
-}
-
-type ApiOk = {
-  ok: boolean;
-  error?: string;
-};
-
-type DeviceRuntimeStatus = {
-  device_serial: string;
-  status: string;
-  task_id?: string | null;
-  message?: string;
-  updated_at?: string | null;
-};
-
-type TaskHistoryItem = {
-  task_id: string;
-  device_serial: string;
-  app_key?: string;
-  suite?: string;
-  status: string;
-  start_time?: string;
-  end_time?: string | null;
-  pytest_exit_code?: number | null;
-  allure_exit_code?: number | null;
-  error?: string | null;
-  log_path?: string | null;
-  allure_output?: string | null;
-  has_report?: boolean;
-  report_url?: string | null;
-  has_report_data?: boolean;
-};
-
-type TaskReportSummary = {
-  task_id: string;
-  session_start?: string;
-  session_end?: string;
-  total: number;
-  passed: number;
-  failed: number;
-  skipped: number;
-  total_duration: number;
-  pass_rate: number;
-  updated_at?: string;
-};
-
-type TaskReportCase = {
-  id: number;
-  task_id: string;
-  case_index: number;
-  node_id?: string;
-  name?: string;
-  status?: string;
-  duration?: number;
-  app?: string;
-  screenshot?: string;
-  video?: string;
-  error_message?: string;
-  screenshot_url?: string | null;
-  video_url?: string | null;
-};
-
-type ReportPagination = {
-  page: number;
-  page_size: number;
-  total: number;
-};
-
-const svgModules = import.meta.glob("../assets/*.svg", {
-  eager: true,
-  import: "default",
-}) as Record<string, string>;
-
-const phoneSvgMap = Object.fromEntries(
-  Object.entries(svgModules).map(([path, url]) => {
-    const name = path.split("/").pop()?.replace(".svg", "").toLowerCase() || "";
-    return [name, url];
-  })
-);
-
-function normalizeKey(value?: string): string {
-  // 缁熶竴鍝佺墝閿悕锛屼究浜庡仛闈欐€佽祫婧愭槧灏勫尮閰嶃€?
-  return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function getBrandImageUrl(brand?: string): string | null {
-  // 鏍规嵁鍝佺墝鍚嶈繑鍥炲搴旂殑鏈湴 SVG 鍥剧墖鍦板潃銆?
-  const key = normalizeKey(brand);
-  if (!key) return null;
-  if (phoneSvgMap[key]) return phoneSvgMap[key];
-  return null;
-}
-
-function renderBrand(brand?: string, imageHeight = 36): ReactNode {
-  // 浼樺厛娓叉煋鍝佺墝鍥炬爣锛屾壘涓嶅埌鍥炬爣鏃跺洖閫€涓烘枃鏈€?
-  const imageUrl = getBrandImageUrl(brand);
-  if (imageUrl) {
-    return (
-      <img
-        src={imageUrl}
-        alt={brand || "phone-brand"}
-        title={brand || ""}
-        style={{ height: imageHeight, objectFit: "contain", display: "block" }}
-      />
-    );
-  }
-  return brand || "-";
-}
-
-function formatDeviceStatus(status?: string): string {
-  // 灏?ADB 璁惧鐘舵€佽浆鎹负鐣岄潰灞曠ず鏂囨銆?
-  const s = (status || "").toLowerCase();
-  if (s === "device") return "已连接";
-  if (s === "offline") return "绂荤嚎";
-  if (s === "unauthorized") return "未授权";
-  if (s === "recovery") return "鎭㈠妯″紡";
-  return status || "-";
-}
-
-function formatRunStatus(status?: string): string {
-  // 灏嗕换鍔¤繍琛岀姸鎬佽浆鎹负鐣岄潰灞曠ず鏂囨銆?
-  const s = (status || "").toLowerCase();
-  if (s === "running") return "运行中";
-  if (s === "failed") return "澶辫触";
-  if (s === "success") return "鎴愬姛";
-  if (s === "idle") return "绌洪棽";
-  if (s === "stopped") return "已停止";
-  return status || "绌洪棽";
-}
-
-function formatExitCode(code?: number | null): string {
-  // 灏嗚繘绋嬮€€鍑虹爜鏄犲皠涓烘槗璇荤粨鏋滄枃妗堛€?
-  if (code === null || code === undefined) return "-";
-  if (code === 0) return "鎴愬姛";
-  if (code === 1) return "澶辫触";
-  return `澶辫触(閫€鍑虹爜${code})`;
-}
-
-function formatCaseStatus(status?: string): string {
-  // 灏嗙敤渚嬫墽琛岀姸鎬佽浆鎹负鐣岄潰灞曠ず鏂囨銆?
-  const s = (status || "").toLowerCase();
-  if (s === "passed") return "閫氳繃";
-  if (s === "failed") return "澶辫触";
-  if (s === "skipped") return "璺宠繃";
-  return status || "-";
-}
-
-function hasReportWarning(task: TaskHistoryItem): boolean {
-  // 璇嗗埆浠诲姟鏄惁瀛樺湪鈥滄墽琛屾垚鍔熶絾鎶ュ憡鍚庡鐞嗗憡璀︹€濈殑鎯呭喌銆?
-  const status = (task.status || "").toLowerCase();
-  if (status !== "success") return false;
-  if ((task.allure_exit_code ?? 0) !== 0) return true;
-  const output = (task.allure_output || "").toLowerCase();
-  return output.includes("failed") || output.includes("warning") || output.includes("warn");
-}
-
-function isSameDeviceRuntimeStatus(
-  left?: DeviceRuntimeStatus | null,
-  right?: DeviceRuntimeStatus | null
-): boolean {
-  return (
-    (left?.device_serial || "") === (right?.device_serial || "") &&
-    (left?.status || "") === (right?.status || "") &&
-    (left?.task_id || null) === (right?.task_id || null) &&
-    (left?.message || "") === (right?.message || "") &&
-    (left?.updated_at || null) === (right?.updated_at || null)
-  );
-}
-
-function isSameTaskHistoryList(left: TaskHistoryItem[], right: TaskHistoryItem[]): boolean {
-  if (left.length !== right.length) return false;
-  for (let i = 0; i < left.length; i += 1) {
-    const a = left[i];
-    const b = right[i];
-    if (
-      a.task_id !== b.task_id ||
-      a.status !== b.status ||
-      (a.start_time || "") !== (b.start_time || "") ||
-      (a.end_time || "") !== (b.end_time || "") ||
-      (a.pytest_exit_code ?? null) !== (b.pytest_exit_code ?? null) ||
-      (a.allure_exit_code ?? null) !== (b.allure_exit_code ?? null) ||
-      (a.error || "") !== (b.error || "") ||
-      Boolean(a.has_report) !== Boolean(b.has_report) ||
-      (a.report_url || "") !== (b.report_url || "") ||
-      Boolean(a.has_report_data) !== Boolean(b.has_report_data)
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function isSameReportSummary(left?: TaskReportSummary, right?: TaskReportSummary): boolean {
-  return (
-    (left?.task_id || "") === (right?.task_id || "") &&
-    (left?.session_start || "") === (right?.session_start || "") &&
-    (left?.session_end || "") === (right?.session_end || "") &&
-    (left?.total ?? 0) === (right?.total ?? 0) &&
-    (left?.passed ?? 0) === (right?.passed ?? 0) &&
-    (left?.failed ?? 0) === (right?.failed ?? 0) &&
-    (left?.skipped ?? 0) === (right?.skipped ?? 0) &&
-    (left?.total_duration ?? 0) === (right?.total_duration ?? 0) &&
-    (left?.pass_rate ?? 0) === (right?.pass_rate ?? 0) &&
-    (left?.updated_at || "") === (right?.updated_at || "")
-  );
-}
-
-function isSameReportCases(left: TaskReportCase[], right: TaskReportCase[]): boolean {
-  if (left.length !== right.length) return false;
-  for (let i = 0; i < left.length; i += 1) {
-    const a = left[i];
-    const b = right[i];
-    if (
-      a.id !== b.id ||
-      a.case_index !== b.case_index ||
-      (a.node_id || "") !== (b.node_id || "") ||
-      (a.name || "") !== (b.name || "") ||
-      (a.status || "") !== (b.status || "") ||
-      (a.duration ?? 0) !== (b.duration ?? 0) ||
-      (a.app || "") !== (b.app || "") ||
-      (a.screenshot_url || "") !== (b.screenshot_url || "") ||
-      (a.video_url || "") !== (b.video_url || "") ||
-      (a.error_message || "") !== (b.error_message || "")
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function isSameReportPagination(left: ReportPagination, right: ReportPagination): boolean {
-  return left.page === right.page && left.page_size === right.page_size && left.total === right.total;
-}
-
-async function apiRequest<T>(path: string, body?: unknown): Promise<T> {
-  // 缁熶竴灏佽 GET/POST 璇锋眰涓庨敊璇鐞嗛€昏緫銆?
-  const resp = await fetch(path, {
-    method: body === undefined ? "GET" : "POST",
-    headers: body === undefined ? {} : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!resp.ok) {
-    throw new Error(`HTTP ${resp.status}`);
-  }
-  return (await resp.json()) as T;
-}
+  fallbackPackageLabel,
+  formatCaseStatus,
+  formatDeviceStatus,
+  formatExitCode,
+  formatRunStatus,
+  hasReportWarning,
+  isSameDeviceRuntimeStatus,
+  isSameReportCases,
+  isSameReportPagination,
+  isSameReportSummary,
+  isSameTaskHistoryList,
+  normalizePackageQueue,
+  normalizePackageValue,
+  renderBrand,
+  resolvePackageLabel,
+} from "./lib/appHelpers";
+import {
+  getAppOptions,
+  getAppiumReady,
+  getDeviceRuntime,
+  getStartupInfo,
+  getTaskHistory,
+  getTaskReportData,
+  getTaskStatus,
+  listDevices,
+  listTestPackages,
+  openReport as openReportRequest,
+  runTests as runTestsRequest,
+  stopTask,
+} from "./lib/api";
+import type {
+  AppOption,
+  Device,
+  DeviceRuntimeStatus,
+  ReportPagination,
+  TaskHistoryItem,
+  TaskReportCase,
+  TaskReportSummary,
+  TestPackageOption,
+} from "./types/app";
 
 function App() {
   // 涓婚〉闈㈢粍浠讹細璐熻矗璁惧绠＄悊銆佷换鍔℃墽琛屻€佺粨鏋滀笌鎶ュ憡灞曠ず銆?
@@ -577,9 +290,7 @@ function App() {
 
   const refreshDeviceRuntime = async (deviceSerial: string) => {
     // 鍒锋柊鍗曚釜璁惧鐨勫疄鏃朵换鍔＄姸鎬佸苟鏇存柊缂撳瓨銆?
-    const res = await apiRequest<{ ok: boolean; device_status: DeviceRuntimeStatus }>(
-      `/api/device_status/${encodeURIComponent(deviceSerial)}`
-    );
+    const res = await getDeviceRuntime(deviceSerial);
     if (res.ok && res.device_status) {
       setDeviceRuntimeMap((old) => {
         if (isSameDeviceRuntimeStatus(old[deviceSerial], res.device_status)) {
@@ -594,14 +305,11 @@ function App() {
 
   const refreshTaskHistory = async () => {
     // 鎸夊綋鍓嶇瓫閫夋潯浠舵媺鍙栦换鍔″巻鍙诧紝骞跺悓姝ュ彲閫夋姤鍛婁换鍔°€?
-    const params = new URLSearchParams();
-    params.set("limit", "30");
-    if (selectedDevice) params.set("device", selectedDevice);
-    if (historyStatusFilter !== "all" && historyStatusFilter !== "report_warning") {
-      params.set("status", historyStatusFilter);
-    }
-    const url = `/api/task_history?${params.toString()}`;
-    const res = await apiRequest<{ ok: boolean; tasks: TaskHistoryItem[] }>(url);
+    const res = await getTaskHistory({
+      limit: 30,
+      device: selectedDevice,
+      status: historyStatusFilter !== "all" && historyStatusFilter !== "report_warning" ? historyStatusFilter : undefined,
+    });
     if (res.ok) {
       const list = res.tasks || [];
       setTaskHistory((old) => (isSameTaskHistoryList(old, list) ? old : list));
@@ -626,20 +334,12 @@ function App() {
     }
     setReportLoading(true);
     try {
-      const params = new URLSearchParams();
-      params.set("page", String(reportPage));
-      params.set("page_size", String(reportPageSize));
-      if (reportCaseStatusFilter !== "all") {
-        params.set("status", reportCaseStatusFilter);
-      }
-      const res = await apiRequest<
-        ApiOk & {
-          task_id: string;
-          summary: TaskReportSummary;
-          tests: TaskReportCase[];
-          pagination?: ReportPagination;
-        }
-      >(`/api/task_report_data/${encodeURIComponent(targetTaskId)}?${params.toString()}`);
+      const res = await getTaskReportData({
+      taskId: targetTaskId,
+      page: reportPage,
+      pageSize: reportPageSize,
+      status: reportCaseStatusFilter !== "all" ? reportCaseStatusFilter : undefined,
+    });
       if (!res.ok) {
         setReportSummary((old) => (old === undefined ? old : undefined));
         setReportCases((old) => (old.length === 0 ? old : []));
@@ -672,10 +372,7 @@ function App() {
   const refreshDevices = async () => {
     // 鍒锋柊璁惧鍒楄〃锛屽悓鏃惰ˉ榻愭瘡鍙拌澶囩殑杩愯鐘舵€併€?
     setLogText("姝ｅ湪鍒锋柊璁惧...");
-    const res = await apiRequest<{ ok: boolean; devices: Device[]; error?: string }>(
-      "/api/list_devices",
-      {}
-    );
+    const res = await listDevices();
     if (!res.ok) {
       setLogText(`鍒锋柊璁惧澶辫触:\n${res.error || "unknown error"}`);
       return;
@@ -704,7 +401,7 @@ function App() {
 
   const refreshApps = async () => {
     // 鑾峰彇搴旂敤閫夐」骞舵牎姝ｅ綋鍓嶉€変腑椤广€?
-    const res = await apiRequest<AppOption[]>("/api/get_app_options");
+    const res = await getAppOptions();
     setApps(res || []);
     if (res?.length) {
       setSelectedApp((old) => old && res.some((a) => a.key === old) ? old : res[0].key);
@@ -715,15 +412,7 @@ function App() {
     // 鏍规嵁搴旂敤鍒锋柊鍙墽琛岀敤渚嬪寘锛屽苟缁存姢鎵ц闃熷垪閫夋嫨鐘舵€併€?
     const targetApp = appKey || selectedApp;
     if (!targetApp) return;
-    const res = await apiRequest<{
-      ok: boolean;
-      packages: Array<string | TestPackageOption>;
-      package_paths?: string[];
-      error?: string;
-    }>(
-      "/api/list_test_packages",
-      { app_key: targetApp }
-    );
+    const res = await listTestPackages(targetApp);
     if (!res.ok) {
       setLogText(`加载用例包失败\n${res.error || "unknown error"}`);
       return;
@@ -811,9 +500,7 @@ function App() {
   const runTests = async () => {
     // 鏍￠獙鎵ц鍓嶆彁骞跺垱寤烘祴璇曚换鍔°€?
     try {
-      const appium = await apiRequest<{ running: boolean; server_url?: string; error?: string }>(
-        "/api/appium_ready"
-      );
+      const appium = await getAppiumReady();
       if (!appium.running) {
         const addr = appium.server_url || "http://127.0.0.1:4723";
         msgApi.error(`Appium 未启动（${addr}）`);
@@ -844,15 +531,12 @@ function App() {
           .map((p, i) => `${i + 1}. ${p}`)
           .join("\n")}`
       );
-      const res = await apiRequest<ApiOk & { task_id?: string; status?: string }>(
-        "/api/run_tests",
-        {
-          device: selectedDevice,
-          app_key: selectedApp,
-          test_packages: executionPackages,
-          suite,
-        }
-      );
+      const res = await runTestsRequest({
+        device: selectedDevice,
+        app_key: selectedApp,
+        test_packages: executionPackages,
+        suite,
+      });
       if (!res.ok) {
         setLogText(`鎵ц澶辫触\n\n${res.error || "unknown error"}`);
         return;
@@ -873,13 +557,10 @@ function App() {
   const stopCurrentTask = async () => {
     // 璇锋眰鍚庣鍋滄褰撳墠璁惧涓婄殑浠诲姟锛屽苟鍒锋柊鐘舵€併€?
     if (!selectedDevice) return;
-    const res = await apiRequest<ApiOk & { task_id?: string; status?: string }>(
-      "/api/stop_task",
-      {
-        task_id: currentTaskId,
-        device: selectedDevice,
-      }
-    );
+    const res = await stopTask({
+      task_id: currentTaskId,
+      device: selectedDevice,
+    });
     if (!res.ok) {
       msgApi.error(res.error || "鍋滄浠诲姟澶辫触");
       return;
@@ -891,7 +572,7 @@ function App() {
 
   const openReport = async () => {
     // 鎵撳紑鏈€杩戜竴娆＄敓鎴愮殑娴嬭瘯鎶ュ憡銆?
-    const res = await apiRequest<ApiOk>("/api/open_report", {});
+    const res = await openReportRequest();
     if (!res.ok) {
       msgApi.error(res.error || "鎵撳紑鎶ュ憡澶辫触");
     }
@@ -922,18 +603,7 @@ function App() {
       return;
     }
     try {
-      const res = await apiRequest<
-        ApiOk & {
-          task_id?: string;
-          status?: string;
-          pytest_exit_code?: number | null;
-          allure_exit_code?: number | null;
-          pytest_output?: string;
-          allure_output?: string;
-          error?: string;
-          device?: string;
-        }
-      >(`/api/task_status/${encodeURIComponent(currentTaskId)}`);
+      const res = await getTaskStatus(currentTaskId);
       if (!res.ok) return;
       setLogText(
         `浠诲姟: ${res.task_id}\n鐘舵€? ${formatRunStatus(res.status)}\nPytest缁撴灉: ${formatExitCode(
@@ -960,7 +630,7 @@ function App() {
     // 椤甸潰棣栨鍔犺浇锛氭媺鍙栧惎鍔ㄤ緷璧栦俊鎭€佸簲鐢ㄣ€佽澶囦笌鍘嗗彶鏁版嵁銆?
     (async () => {
       try {
-        const startup = await apiRequest<{ missing_dependencies?: string[] }>("/api/startup_info");
+        const startup = await getStartupInfo();
         setStartupMissing(startup.missing_dependencies || []);
         await Promise.all([refreshApps(), refreshDevices()]);
       } catch (err) {
@@ -1403,6 +1073,11 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
 
 
 
