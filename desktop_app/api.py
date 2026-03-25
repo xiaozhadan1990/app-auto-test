@@ -20,7 +20,7 @@ class ApiDeps:
     get_task_history: Callable[..., list[dict[str, Any]]]
     get_task_record: Callable[[str], dict[str, Any] | None]
     task_report_paths: Callable[[str], tuple[Path, Path]]
-    get_task_report_data: Callable[[str], dict[str, Any] | None]
+    get_task_report_data: Callable[..., dict[str, Any] | None]
     resolve_report_asset_path: Callable[[str], Path | None]
     fetch_remote_report_asset: Callable[[str], tuple[bytes, str] | None]
     stop_task: Callable[[dict[str, Any]], dict[str, Any]]
@@ -104,7 +104,22 @@ def register_routes(app: Flask, deps: ApiDeps) -> None:
 
     @app.get("/api/task_report_data/<task_id>")
     def api_task_report_data(task_id: str) -> Any:
-        data = deps.get_task_report_data(task_id)
+        try:
+            page = max(1, int(request.args.get("page", "1")))
+        except ValueError:
+            page = 1
+        page_size_raw = (request.args.get("page_size") or "").strip()
+        if page_size_raw:
+            try:
+                page_size = max(1, min(int(page_size_raw), 200))
+            except ValueError:
+                page_size = 20
+        else:
+            page_size = None
+        status = (request.args.get("status") or "").strip().lower() or None
+        if status and status not in {"passed", "failed", "skipped"}:
+            status = None
+        data = deps.get_task_report_data(task_id, page=page, page_size=page_size, status=status)
         if not data:
             return jsonify({"ok": False, "error": f"task report data not found: {task_id}"}), 404
         return jsonify({"ok": True, "task_id": task_id, **data})

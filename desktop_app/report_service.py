@@ -313,25 +313,29 @@ def save_task_report_to_db(
                 pass_rate,
             ),
         )
-        for idx, case in enumerate(tests, start=1):
-            conn.execute(
+        case_rows = [
+            (
+                task_id,
+                idx,
+                str(case.get("node_id") or ""),
+                str(case.get("name") or ""),
+                str(case.get("status") or ""),
+                float(case.get("duration", 0) or 0),
+                str(case.get("app") or ""),
+                str(case.get("screenshot") or ""),
+                str(case.get("video") or ""),
+                str(case.get("error_message") or ""),
+            )
+            for idx, case in enumerate(tests, start=1)
+        ]
+        if case_rows:
+            conn.executemany(
                 """
                 INSERT INTO task_report_cases(
                     task_id, case_index, node_id, name, status, duration, app, screenshot, video, error_message
                 ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    task_id,
-                    idx,
-                    str(case.get("node_id") or ""),
-                    str(case.get("name") or ""),
-                    str(case.get("status") or ""),
-                    float(case.get("duration", 0) or 0),
-                    str(case.get("app") or ""),
-                    str(case.get("screenshot") or ""),
-                    str(case.get("video") or ""),
-                    str(case.get("error_message") or ""),
-                ),
+                case_rows,
             )
         conn.commit()
         return True
@@ -341,16 +345,41 @@ def save_task_report_to_db(
         conn.close()
 
 
-def get_task_report_data(task_id: str, *, db_conn: Callable[[], Any]) -> dict[str, Any] | None:
+def get_task_report_data(
+    task_id: str,
+    *,
+    db_conn: Callable[[], Any],
+    page: int | None = None,
+    page_size: int | None = None,
+    status: str | None = None,
+) -> dict[str, Any] | None:
     conn = db_conn()
     try:
         summary_row = conn.execute("SELECT * FROM task_report_summary WHERE task_id=?", (task_id,)).fetchone()
         if not summary_row:
             return None
-        case_rows = conn.execute(
-            "SELECT * FROM task_report_cases WHERE task_id=? ORDER BY case_index ASC",
-            (task_id,),
-        ).fetchall()
+        normalized_status = (status or "").strip().lower()
+        if normalized_status not in {"passed", "failed", "skipped"}:
+            normalized_status = ""
+        where_clause = "WHERE task_id=?"
+        count_params: list[Any] = [task_id]
+        if normalized_status:
+            where_clause += " AND lower(status)=?"
+            count_params.append(normalized_status)
+        total_cases = int(
+            conn.execute(
+                f"SELECT COUNT(1) FROM task_report_cases {where_clause}",
+                count_params,
+            ).fetchone()[0]
+        )
+        current_page = max(1, int(page or 1))
+        current_page_size = total_cases if page_size is None else max(1, min(int(page_size), 200))
+        query = f"SELECT * FROM task_report_cases {where_clause} ORDER BY case_index ASC"
+        query_params = list(count_params)
+        if page_size is not None:
+            query = f"{query} LIMIT ? OFFSET ?"
+            query_params.extend([current_page_size, (current_page - 1) * current_page_size])
+        case_rows = conn.execute(query, query_params).fetchall()
     finally:
         conn.close()
 
@@ -359,5 +388,13 @@ def get_task_report_data(task_id: str, *, db_conn: Callable[[], Any]) -> dict[st
     for case in cases:
         case["screenshot_url"] = report_asset_url(str(case.get("screenshot") or ""))
         case["video_url"] = report_asset_url(str(case.get("video") or ""))
-    return {"summary": summary, "tests": cases}
+    return {
+        "summary": summary,
+        "tests": cases,
+        "pagination": {
+            "page": current_page,
+            "page_size": current_page_size,
+            "total": total_cases,
+        },
+    }
 

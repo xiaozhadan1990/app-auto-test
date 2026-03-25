@@ -18,6 +18,17 @@ class TaskRuntime:
     device_running_task: dict[str, str]
 
 
+def _read_log_tail(log_path: Path, max_bytes: int = 120_000) -> str:
+    if max_bytes <= 0 or not log_path.exists():
+        return ""
+    with log_path.open("rb") as fp:
+        fp.seek(0, os.SEEK_END)
+        file_size = fp.tell()
+        fp.seek(max(file_size - max_bytes, 0))
+        chunk = fp.read()
+    return chunk.decode("utf-8", errors="ignore")
+
+
 def run_tests(
     payload: dict[str, Any],
     *,
@@ -258,12 +269,9 @@ def task_status(
                 "has_report_data": task_has_report_data(task_id),
             }
             log_path = Path(str(record.get("log_path") or ""))
-    if log_path.exists():
-        try:
-            payload["pytest_output"] = log_path.read_text(encoding="utf-8", errors="ignore")[-120000:]
-        except Exception:
-            payload["pytest_output"] = ""
-    else:
+    try:
+        payload["pytest_output"] = _read_log_tail(log_path)
+    except Exception:
         payload["pytest_output"] = ""
     return payload
 

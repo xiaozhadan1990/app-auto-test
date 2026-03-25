@@ -4,6 +4,8 @@ import os
 import shutil
 import socket
 import sys
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,7 @@ from typing import Any
 from .api import ApiDeps
 from .db_service import db_conn as db_conn_impl
 from .db_service import get_device_status as get_device_status_impl
+from .db_service import get_device_status_map as get_device_status_map_impl
 from .db_service import get_task_history as get_task_history_impl
 from .db_service import get_task_record as get_task_record_impl
 from .db_service import init_runtime_db as init_runtime_db_impl
@@ -62,6 +65,8 @@ class DesktopServiceContainer:
     task_runtime: TaskRuntime = field(init=False)
     remote_ws_runtime: RemoteWsRuntime = field(init=False)
     remote_ws_deps: RemoteWsDeps = field(init=False)
+    probe_cache_lock: threading.Lock = field(init=False)
+    probe_cache: dict[str, tuple[float, dict[str, Any]]] = field(init=False)
 
     def __post_init__(self) -> None:
         self.task_runtime = TaskRuntime(
@@ -79,6 +84,8 @@ class DesktopServiceContainer:
             get_running_task_ids=self.get_running_task_ids,
             remote_ws_exec_command=self.remote_ws_exec_command,
         )
+        self.probe_cache_lock = threading.Lock()
+        self.probe_cache = {}
 
     def is_frozen(self) -> bool:
         return bool(getattr(sys, "frozen", False))
@@ -109,6 +116,9 @@ class DesktopServiceContainer:
 
     def get_device_status(self, device_serial: str) -> dict[str, Any]:
         return get_device_status_impl(device_serial, db_conn_fn=self.db_conn)
+
+    def get_device_status_map(self, device_serials: list[str]) -> dict[str, dict[str, Any]]:
+        return get_device_status_map_impl(device_serials, db_conn_fn=self.db_conn)
 
     def ensure_task_log_dir(self) -> None:
         self.task_log_dir.mkdir(parents=True, exist_ok=True)
@@ -151,8 +161,21 @@ class DesktopServiceContainer:
             remote_ws_log=self.remote_ws_log,
         )
 
-    def get_task_report_data(self, task_id: str) -> dict[str, Any] | None:
-        return get_task_report_data_impl(task_id, db_conn=self.db_conn)
+    def get_task_report_data(
+        self,
+        task_id: str,
+        *,
+        page: int | None = None,
+        page_size: int | None = None,
+        status: str | None = None,
+    ) -> dict[str, Any] | None:
+        return get_task_report_data_impl(
+            task_id,
+            db_conn=self.db_conn,
+            page=page,
+            page_size=page_size,
+            status=status,
+        )
 
     def insert_task_history(
         self,
@@ -223,6 +246,24 @@ class DesktopServiceContainer:
             return default
         return raw in {"1", "true", "yes", "on"}
 
+    def _get_probe_cache(self, key: str, ttl_sec: float) -> dict[str, Any] | None:
+        now = time.time()
+        with self.probe_cache_lock:
+            cached = self.probe_cache.get(key)
+            if not cached:
+                return None
+            cached_at, payload = cached
+            if now - cached_at > ttl_sec:
+                self.probe_cache.pop(key, None)
+                return None
+            return dict(payload)
+
+    def _set_probe_cache(self, key: str, payload: dict[str, Any]) -> dict[str, Any]:
+        snapshot = dict(payload)
+        with self.probe_cache_lock:
+            self.probe_cache[key] = (time.time(), snapshot)
+        return dict(snapshot)
+
     def get_running_task_ids(self) -> list[str]:
         with self.tasks_lock:
             return list(self.device_running_task.values())
@@ -287,11 +328,26 @@ class DesktopServiceContainer:
         start_remote_ws_if_needed_impl(self.remote_ws_runtime, self.remote_ws_deps, websocket_client_module)
 
     def list_devices(self) -> dict[str, Any]:
-        return list_devices_impl(
+        result = list_devices_impl(
             adb_bin=self.adb_bin,
             app_config=self.app_config,
             project_root=self.project_root,
         )
+        if not result.get("ok"):
+            return result
+        devices = result.get("devices") or []
+        status_map = self.get_device_status_map([str(item.get("serial") or "") for item in devices])
+        for item in devices:
+            serial = str(item.get("serial") or "")
+            runtime_status = status_map.get(serial) or {
+                "device_serial": serial,
+                "status": "idle",
+                "task_id": None,
+                "message": "",
+                "updated_at": None,
+            }
+            item["runtime_status"] = runtime_status
+        return result
 
     def list_test_packages(self, app_key: str) -> list[dict[str, str]]:
         return list_test_packages_impl(
@@ -301,29 +357,44 @@ class DesktopServiceContainer:
         )
 
     def startup_info(self) -> dict[str, Any]:
+        cache_key = f"startup_info:{self.adb_bin}"
+        cached = self._get_probe_cache(cache_key, ttl_sec=15.0)
+        if cached is not None:
+            return cached
         missing: list[str] = []
-        if shutil.which("adb") is None:
+        adb_available = bool(self.adb_bin and shutil.which(self.adb_bin))
+        if not adb_available and shutil.which("adb") is None:
             missing.append("adb")
-        return {"ok": True, "missing_dependencies": missing}
+        return self._set_probe_cache(cache_key, {"ok": True, "missing_dependencies": missing})
 
     def appium_ready(self) -> dict[str, Any]:
         server_url = (os.getenv("APPIUM_SERVER_URL", "http://127.0.0.1:4723") or "").strip().rstrip("/")
         if not server_url:
             return {"ok": True, "running": False, "server_url": "", "error": "APPIUM_SERVER_URL 为空"}
+        cache_key = f"appium_ready:{server_url}"
+        cached = self._get_probe_cache(cache_key, ttl_sec=2.0)
+        if cached is not None:
+            return cached
         import urllib.request
 
         status_url = f"{server_url}/status"
         try:
             with urllib.request.urlopen(status_url, timeout=1.5) as resp:
                 running = resp.status == 200
-                return {
-                    "ok": True,
-                    "running": running,
-                    "server_url": server_url,
-                    "error": None if running else f"HTTP {resp.status}",
-                }
+                return self._set_probe_cache(
+                    cache_key,
+                    {
+                        "ok": True,
+                        "running": running,
+                        "server_url": server_url,
+                        "error": None if running else f"HTTP {resp.status}",
+                    },
+                )
         except Exception as exc:
-            return {"ok": True, "running": False, "server_url": server_url, "error": str(exc)}
+            return self._set_probe_cache(
+                cache_key,
+                {"ok": True, "running": False, "server_url": server_url, "error": str(exc)},
+            )
 
     def run_tests(self, payload: dict[str, Any]) -> dict[str, Any]:
         return run_tests_impl(

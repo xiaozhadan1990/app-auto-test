@@ -2,8 +2,16 @@ from __future__ import annotations
 
 import re
 import subprocess
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Mapping
+
+
+_DEVICE_CACHE_TTL_SEC = 10.0
+_device_cache_lock = threading.Lock()
+_device_cache: dict[str, dict[str, Any]] = {}
 
 
 def _run_command(
@@ -44,6 +52,23 @@ def _get_prop(adb_bin: str, serial: str, prop: str, cwd: Path) -> str:
     return out.strip() or "-" if code == 0 else "-"
 
 
+def _get_device_props(adb_bin: str, serial: str, cwd: Path) -> dict[str, str]:
+    code, out = _adb(adb_bin, serial, ["getprop"], cwd=cwd)
+    if code != 0:
+        return {"brand": "-", "model": "-", "os_version": "-"}
+    props: dict[str, str] = {}
+    for line in out.splitlines():
+        match = re.match(r"\[(.+?)\]:\s*\[(.*)\]", line.strip())
+        if not match:
+            continue
+        props[match.group(1)] = match.group(2)
+    return {
+        "brand": props.get("ro.product.brand", "-") or "-",
+        "model": props.get("ro.product.model", "-") or "-",
+        "os_version": props.get("ro.build.version.release", "-") or "-",
+    }
+
+
 def _get_app_version(adb_bin: str, serial: str, package_name: str, cwd: Path) -> str:
     """通过 dumpsys package 读取应用版本号，未安装时返回提示文案。"""
     code, out = _adb(adb_bin, serial, ["dumpsys", "package", package_name], cwd=cwd, timeout=40)
@@ -51,6 +76,86 @@ def _get_app_version(adb_bin: str, serial: str, package_name: str, cwd: Path) ->
         return "未安装"
     m = re.search(r"versionName=([^\s]+)", out)
     return m.group(1) if m else "未安装"
+
+
+def _app_config_signature(app_config: Mapping[str, Mapping[str, str]]) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        sorted((str(key), str(value.get("package_name") or "")) for key, value in app_config.items())
+    )
+
+
+def _get_cached_device_entry(
+    serial: str,
+    status: str,
+    app_signature: tuple[tuple[str, str], ...],
+) -> dict[str, Any] | None:
+    now = time.time()
+    with _device_cache_lock:
+        cached = _device_cache.get(serial)
+        if not cached:
+            return None
+        if cached.get("status") != status:
+            return None
+        if cached.get("app_signature") != app_signature:
+            return None
+        if now - float(cached.get("timestamp") or 0.0) > _DEVICE_CACHE_TTL_SEC:
+            return None
+        entry = cached.get("entry")
+        return dict(entry) if isinstance(entry, dict) else None
+
+
+def _set_cached_device_entry(
+    serial: str,
+    status: str,
+    app_signature: tuple[tuple[str, str], ...],
+    entry: dict[str, Any],
+) -> None:
+    with _device_cache_lock:
+        _device_cache[serial] = {
+            "status": status,
+            "app_signature": app_signature,
+            "timestamp": time.time(),
+            "entry": dict(entry),
+        }
+
+
+def _build_device_entry(
+    adb_bin: str,
+    serial: str,
+    status: str,
+    app_config: Mapping[str, Mapping[str, str]],
+    project_root: Path,
+) -> dict[str, Any]:
+    if status != "device":
+        return {
+            "serial": serial,
+            "status": status,
+            "brand": "-",
+            "model": "-",
+            "os_version": "-",
+            "app_versions": {},
+        }
+
+    app_signature = _app_config_signature(app_config)
+    cached = _get_cached_device_entry(serial, status, app_signature)
+    if cached is not None:
+        return cached
+
+    props = _get_device_props(adb_bin, serial, project_root)
+    app_versions = {
+        k: _get_app_version(adb_bin, serial, v["package_name"], project_root)
+        for k, v in app_config.items()
+    }
+    entry = {
+        "serial": serial,
+        "status": status,
+        "brand": props["brand"],
+        "model": props["model"],
+        "os_version": props["os_version"],
+        "app_versions": app_versions,
+    }
+    _set_cached_device_entry(serial, status, app_signature, entry)
+    return entry
 
 
 def list_devices(
@@ -63,38 +168,25 @@ def list_devices(
     if code != 0:
         return {"ok": False, "devices": [], "error": out or "无法执行 adb devices"}
 
-    devices: list[dict[str, Any]] = []
+    parsed_devices: list[tuple[str, str]] = []
     for line in out.splitlines():
         line = line.strip()
         if not line or line.startswith("List of devices") or "\t" not in line:
             continue
         serial, status = line.split("\t", 1)
-        serial, status = serial.strip(), status.strip()
-        if status != "device":
-            devices.append(
-                {
-                    "serial": serial,
-                    "status": status,
-                    "brand": "-",
-                    "model": "-",
-                    "os_version": "-",
-                    "app_versions": {},
-                }
-            )
-            continue
-        app_versions = {
-            k: _get_app_version(adb_bin, serial, v["package_name"], project_root)
-            for k, v in app_config.items()
+        parsed_devices.append((serial.strip(), status.strip()))
+    if not parsed_devices:
+        return {"ok": True, "devices": []}
+
+    max_workers = min(max(len(parsed_devices), 1), 4)
+    ordered: list[dict[str, Any] | None] = [None] * len(parsed_devices)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_map = {
+            executor.submit(_build_device_entry, adb_bin, serial, status, app_config, project_root): idx
+            for idx, (serial, status) in enumerate(parsed_devices)
         }
-        devices.append(
-            {
-                "serial": serial,
-                "status": status,
-                "brand": _get_prop(adb_bin, serial, "ro.product.brand", project_root),
-                "model": _get_prop(adb_bin, serial, "ro.product.model", project_root),
-                "os_version": _get_prop(adb_bin, serial, "ro.build.version.release", project_root),
-                "app_versions": app_versions,
-            }
-        )
+        for future in as_completed(future_map):
+            ordered[future_map[future]] = future.result()
+    devices = [item for item in ordered if item is not None]
     return {"ok": True, "devices": devices}
 

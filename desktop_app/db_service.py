@@ -10,6 +10,9 @@ def db_conn(*, reports_root: Any, runtime_db_file: Any) -> sqlite3.Connection:
     reports_root.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(runtime_db_file)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -81,6 +84,24 @@ def init_runtime_db(*, db_conn_fn: Callable[[], sqlite3.Connection]) -> None:
             """
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_report_cases_task_id ON task_report_cases(task_id)")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_task_history_device_status_start
+            ON task_run_history(device_serial, status, start_time DESC)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_task_history_status_start
+            ON task_run_history(status, start_time DESC)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_task_history_start
+            ON task_run_history(start_time DESC)
+            """
+        )
         conn.commit()
     finally:
         conn.close()
@@ -131,6 +152,30 @@ def get_device_status(device_serial: str, *, db_conn_fn: Callable[[], sqlite3.Co
             "updated_at": None,
         }
     return dict(row)
+
+
+def get_device_status_map(
+    device_serials: list[str],
+    *,
+    db_conn_fn: Callable[[], sqlite3.Connection],
+) -> dict[str, dict[str, Any]]:
+    normalized = [serial.strip() for serial in device_serials if serial and serial.strip()]
+    if not normalized:
+        return {}
+    placeholders = ", ".join("?" for _ in normalized)
+    conn = db_conn_fn()
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT device_serial, status, task_id, message, updated_at
+            FROM device_runtime_status
+            WHERE device_serial IN ({placeholders})
+            """,
+            normalized,
+        ).fetchall()
+    finally:
+        conn.close()
+    return {str(row["device_serial"]): dict(row) for row in rows}
 
 
 def insert_task_history(
@@ -200,45 +245,31 @@ def get_task_history(
 ) -> list[dict[str, Any]]:
     conn = db_conn_fn()
     try:
+        query = """
+            SELECT
+                h.*,
+                CASE WHEN s.task_id IS NULL THEN 0 ELSE 1 END AS has_report_data
+            FROM task_run_history AS h
+            LEFT JOIN task_report_summary AS s ON s.task_id = h.task_id
+        """
+        clauses: list[str] = []
+        params: list[Any] = []
         if device and status:
-            rows = conn.execute(
-                """
-                SELECT * FROM task_run_history
-                WHERE device_serial=? AND status=?
-                ORDER BY start_time DESC
-                LIMIT ?
-                """,
-                (device, status, limit),
-            ).fetchall()
+            clauses.append("h.device_serial=?")
+            params.append(device)
+            clauses.append("h.status=?")
+            params.append(status)
         elif device:
-            rows = conn.execute(
-                """
-                SELECT * FROM task_run_history
-                WHERE device_serial=?
-                ORDER BY start_time DESC
-                LIMIT ?
-                """,
-                (device, limit),
-            ).fetchall()
+            clauses.append("h.device_serial=?")
+            params.append(device)
         elif status:
-            rows = conn.execute(
-                """
-                SELECT * FROM task_run_history
-                WHERE status=?
-                ORDER BY start_time DESC
-                LIMIT ?
-                """,
-                (status, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """
-                SELECT * FROM task_run_history
-                ORDER BY start_time DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+            clauses.append("h.status=?")
+            params.append(status)
+        if clauses:
+            query = f"{query} WHERE {' AND '.join(clauses)}"
+        query = f"{query} ORDER BY h.start_time DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(query, params).fetchall()
     finally:
         conn.close()
     items = [dict(r) for r in rows]
@@ -247,7 +278,7 @@ def get_task_history(
         has_report = task_has_report(task_id) if task_id else False
         item["has_report"] = has_report
         item["report_url"] = task_report_url(task_id) if has_report else None
-        item["has_report_data"] = task_has_report_data(task_id) if task_id else False
+        item["has_report_data"] = bool(item.get("has_report_data"))
     return items
 
 

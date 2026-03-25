@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -23,6 +23,7 @@ type Device = {
   model: string;
   os_version: string;
   app_versions?: Record<string, string>;
+  runtime_status?: DeviceRuntimeStatus;
 };
 
 type AppOption = {
@@ -72,7 +73,7 @@ function fallbackPackageLabel(packageValue: string): string {
   const fileName = segments[segments.length - 1] || normalized;
   const appKey = (segments[segments.length - 2] || "").toLowerCase();
   const appName =
-    appKey === "lysora" ? "Lysora" : appKey === "ruijiecloud" ? "RuijieCloud" : "测试";
+    appKey === "lysora" ? "Lysora" : appKey === "ruijiecloud" ? "RuijieCloud" : "娴嬭瘯";
   const stem = fileName.replace(/\.py$/i, "").replace(/^test_/i, "");
   const readable = stem.replace(/_/g, " ").trim() || fileName;
   return `${appName}-${readable}`;
@@ -80,7 +81,7 @@ function fallbackPackageLabel(packageValue: string): string {
 
 function resolvePackageLabel(input: unknown, labelMap: Record<string, string>): string {
   const value = normalizePackageValue(input);
-  if (!value) return "未知用例";
+  if (!value) return "鏈煡鐢ㄤ緥";
   return labelMap[value] || fallbackPackageLabel(value);
 }
 
@@ -144,6 +145,12 @@ type TaskReportCase = {
   video_url?: string | null;
 };
 
+type ReportPagination = {
+  page: number;
+  page_size: number;
+  total: number;
+};
+
 const svgModules = import.meta.glob("../assets/*.svg", {
   eager: true,
   import: "default",
@@ -157,12 +164,12 @@ const phoneSvgMap = Object.fromEntries(
 );
 
 function normalizeKey(value?: string): string {
-  // 统一品牌键名，便于做静态资源映射匹配。
+  // 缁熶竴鍝佺墝閿悕锛屼究浜庡仛闈欐€佽祫婧愭槧灏勫尮閰嶃€?
   return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function getBrandImageUrl(brand?: string): string | null {
-  // 根据品牌名返回对应的本地 SVG 图片地址。
+  // 鏍规嵁鍝佺墝鍚嶈繑鍥炲搴旂殑鏈湴 SVG 鍥剧墖鍦板潃銆?
   const key = normalizeKey(brand);
   if (!key) return null;
   if (phoneSvgMap[key]) return phoneSvgMap[key];
@@ -170,7 +177,7 @@ function getBrandImageUrl(brand?: string): string | null {
 }
 
 function renderBrand(brand?: string, imageHeight = 36): ReactNode {
-  // 优先渲染品牌图标，找不到图标时回退为文本。
+  // 浼樺厛娓叉煋鍝佺墝鍥炬爣锛屾壘涓嶅埌鍥炬爣鏃跺洖閫€涓烘枃鏈€?
   const imageUrl = getBrandImageUrl(brand);
   if (imageUrl) {
     return (
@@ -186,45 +193,45 @@ function renderBrand(brand?: string, imageHeight = 36): ReactNode {
 }
 
 function formatDeviceStatus(status?: string): string {
-  // 将 ADB 设备状态转换为界面展示文案。
+  // 灏?ADB 璁惧鐘舵€佽浆鎹负鐣岄潰灞曠ず鏂囨銆?
   const s = (status || "").toLowerCase();
   if (s === "device") return "已连接";
-  if (s === "offline") return "离线";
+  if (s === "offline") return "绂荤嚎";
   if (s === "unauthorized") return "未授权";
-  if (s === "recovery") return "恢复模式";
+  if (s === "recovery") return "鎭㈠妯″紡";
   return status || "-";
 }
 
 function formatRunStatus(status?: string): string {
-  // 将任务运行状态转换为界面展示文案。
+  // 灏嗕换鍔¤繍琛岀姸鎬佽浆鎹负鐣岄潰灞曠ず鏂囨銆?
   const s = (status || "").toLowerCase();
   if (s === "running") return "运行中";
-  if (s === "failed") return "失败";
-  if (s === "success") return "成功";
-  if (s === "idle") return "空闲";
+  if (s === "failed") return "澶辫触";
+  if (s === "success") return "鎴愬姛";
+  if (s === "idle") return "绌洪棽";
   if (s === "stopped") return "已停止";
-  return status || "空闲";
+  return status || "绌洪棽";
 }
 
 function formatExitCode(code?: number | null): string {
-  // 将进程退出码映射为易读结果文案。
+  // 灏嗚繘绋嬮€€鍑虹爜鏄犲皠涓烘槗璇荤粨鏋滄枃妗堛€?
   if (code === null || code === undefined) return "-";
-  if (code === 0) return "成功";
-  if (code === 1) return "失败";
-  return `失败(退出码${code})`;
+  if (code === 0) return "鎴愬姛";
+  if (code === 1) return "澶辫触";
+  return `澶辫触(閫€鍑虹爜${code})`;
 }
 
 function formatCaseStatus(status?: string): string {
-  // 将用例执行状态转换为界面展示文案。
+  // 灏嗙敤渚嬫墽琛岀姸鎬佽浆鎹负鐣岄潰灞曠ず鏂囨銆?
   const s = (status || "").toLowerCase();
-  if (s === "passed") return "通过";
-  if (s === "failed") return "失败";
-  if (s === "skipped") return "跳过";
+  if (s === "passed") return "閫氳繃";
+  if (s === "failed") return "澶辫触";
+  if (s === "skipped") return "璺宠繃";
   return status || "-";
 }
 
 function hasReportWarning(task: TaskHistoryItem): boolean {
-  // 识别任务是否存在“执行成功但报告后处理告警”的情况。
+  // 璇嗗埆浠诲姟鏄惁瀛樺湪鈥滄墽琛屾垚鍔熶絾鎶ュ憡鍚庡鐞嗗憡璀︹€濈殑鎯呭喌銆?
   const status = (task.status || "").toLowerCase();
   if (status !== "success") return false;
   if ((task.allure_exit_code ?? 0) !== 0) return true;
@@ -232,8 +239,86 @@ function hasReportWarning(task: TaskHistoryItem): boolean {
   return output.includes("failed") || output.includes("warning") || output.includes("warn");
 }
 
+function isSameDeviceRuntimeStatus(
+  left?: DeviceRuntimeStatus | null,
+  right?: DeviceRuntimeStatus | null
+): boolean {
+  return (
+    (left?.device_serial || "") === (right?.device_serial || "") &&
+    (left?.status || "") === (right?.status || "") &&
+    (left?.task_id || null) === (right?.task_id || null) &&
+    (left?.message || "") === (right?.message || "") &&
+    (left?.updated_at || null) === (right?.updated_at || null)
+  );
+}
+
+function isSameTaskHistoryList(left: TaskHistoryItem[], right: TaskHistoryItem[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i];
+    const b = right[i];
+    if (
+      a.task_id !== b.task_id ||
+      a.status !== b.status ||
+      (a.start_time || "") !== (b.start_time || "") ||
+      (a.end_time || "") !== (b.end_time || "") ||
+      (a.pytest_exit_code ?? null) !== (b.pytest_exit_code ?? null) ||
+      (a.allure_exit_code ?? null) !== (b.allure_exit_code ?? null) ||
+      (a.error || "") !== (b.error || "") ||
+      Boolean(a.has_report) !== Boolean(b.has_report) ||
+      (a.report_url || "") !== (b.report_url || "") ||
+      Boolean(a.has_report_data) !== Boolean(b.has_report_data)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isSameReportSummary(left?: TaskReportSummary, right?: TaskReportSummary): boolean {
+  return (
+    (left?.task_id || "") === (right?.task_id || "") &&
+    (left?.session_start || "") === (right?.session_start || "") &&
+    (left?.session_end || "") === (right?.session_end || "") &&
+    (left?.total ?? 0) === (right?.total ?? 0) &&
+    (left?.passed ?? 0) === (right?.passed ?? 0) &&
+    (left?.failed ?? 0) === (right?.failed ?? 0) &&
+    (left?.skipped ?? 0) === (right?.skipped ?? 0) &&
+    (left?.total_duration ?? 0) === (right?.total_duration ?? 0) &&
+    (left?.pass_rate ?? 0) === (right?.pass_rate ?? 0) &&
+    (left?.updated_at || "") === (right?.updated_at || "")
+  );
+}
+
+function isSameReportCases(left: TaskReportCase[], right: TaskReportCase[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i];
+    const b = right[i];
+    if (
+      a.id !== b.id ||
+      a.case_index !== b.case_index ||
+      (a.node_id || "") !== (b.node_id || "") ||
+      (a.name || "") !== (b.name || "") ||
+      (a.status || "") !== (b.status || "") ||
+      (a.duration ?? 0) !== (b.duration ?? 0) ||
+      (a.app || "") !== (b.app || "") ||
+      (a.screenshot_url || "") !== (b.screenshot_url || "") ||
+      (a.video_url || "") !== (b.video_url || "") ||
+      (a.error_message || "") !== (b.error_message || "")
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isSameReportPagination(left: ReportPagination, right: ReportPagination): boolean {
+  return left.page === right.page && left.page_size === right.page_size && left.total === right.total;
+}
+
 async function apiRequest<T>(path: string, body?: unknown): Promise<T> {
-  // 统一封装 GET/POST 请求与错误处理逻辑。
+  // 缁熶竴灏佽 GET/POST 璇锋眰涓庨敊璇鐞嗛€昏緫銆?
   const resp = await fetch(path, {
     method: body === undefined ? "GET" : "POST",
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
@@ -246,7 +331,7 @@ async function apiRequest<T>(path: string, body?: unknown): Promise<T> {
 }
 
 function App() {
-  // 主页面组件：负责设备管理、任务执行、结果与报告展示。
+  // 涓婚〉闈㈢粍浠讹細璐熻矗璁惧绠＄悊銆佷换鍔℃墽琛屻€佺粨鏋滀笌鎶ュ憡灞曠ず銆?
   const [msgApi, contextHolder] = message.useMessage();
   const [activeTab, setActiveTab] = useState("devices");
   const [devices, setDevices] = useState<Device[]>([]);
@@ -258,8 +343,9 @@ function App() {
   const [suite, setSuite] = useState("all");
   const [executionPackages, setExecutionPackages] = useState<string[]>([]);
   const [selectedExecutionIndex, setSelectedExecutionIndex] = useState<number>(-1);
-  const [logText, setLogText] = useState("等待执行...");
+  const [logText, setLogText] = useState("绛夊緟鎵ц...");
   const [startupMissing, setStartupMissing] = useState<string[]>([]);
+  const [startupReady, setStartupReady] = useState(false);
   const [deviceRuntimeMap, setDeviceRuntimeMap] = useState<Record<string, DeviceRuntimeStatus>>({});
   const [currentTaskId, setCurrentTaskId] = useState<string>();
   const [taskHistory, setTaskHistory] = useState<TaskHistoryItem[]>([]);
@@ -269,6 +355,13 @@ function App() {
   const [reportCases, setReportCases] = useState<TaskReportCase[]>([]);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportCaseStatusFilter, setReportCaseStatusFilter] = useState<string>("all");
+  const [reportPage, setReportPage] = useState(1);
+  const [reportPageSize, setReportPageSize] = useState(10);
+  const [reportPagination, setReportPagination] = useState<ReportPagination>({
+    page: 1,
+    page_size: 10,
+    total: 0,
+  });
   const summaryCardStyle: CSSProperties = { height: 132 };
   const summaryBodyStyle: CSSProperties = {
     minHeight: 86,
@@ -296,10 +389,6 @@ function App() {
     if (historyStatusFilter !== "report_warning") return taskHistory;
     return taskHistory.filter((t) => hasReportWarning(t));
   }, [taskHistory, historyStatusFilter]);
-  const filteredReportCases = useMemo(() => {
-    if (reportCaseStatusFilter === "all") return reportCases;
-    return reportCases.filter((c) => (c.status || "").toLowerCase() === reportCaseStatusFilter);
-  }, [reportCases, reportCaseStatusFilter]);
   const packageLabelMap = useMemo(() => {
     const map: Record<string, string> = {};
     for (const item of packages) {
@@ -310,21 +399,201 @@ function App() {
     }
     return map;
   }, [packages]);
+  const shouldPollTaskStatus = activeTab === "results" && Boolean(currentTaskId);
+  const shouldPollTaskHistory = shouldPollTaskStatus;
+  const shouldPollDeviceStatus =
+    Boolean(selectedDevice) &&
+    (activeTab === "devices" || activeTab === "runner" || shouldPollTaskStatus);
+  const shouldLoadReportData = activeTab === "report" && Boolean(reportTaskId);
+  const tabItems = useMemo(
+    () => [
+      { key: "devices", label: "手机终端" },
+      { key: "runner", label: "用例执行" },
+      { key: "results", label: "执行结果" },
+      { key: "report", label: "测试报告" },
+    ],
+    []
+  );
+  const deviceSelectOptions = useMemo(
+    () => devices.map((d) => ({ value: d.serial, label: `${d.serial} (${formatDeviceStatus(d.status)})` })),
+    [devices]
+  );
+  const appSelectOptions = useMemo(
+    () => apps.map((a) => ({ value: a.key, label: a.label })),
+    [apps]
+  );
+  const packageSelectOptions = useMemo(
+    () =>
+      packages.map((item) => ({
+        value: item.value,
+        label: item.label,
+        title: item.tooltip || item.label,
+      })),
+    [packages]
+  );
+  const suiteOptions = useMemo(
+    () => [
+      { value: "all", label: "全部" },
+      { value: "smoke", label: "冒烟测试" },
+      { value: "full", label: "全量测试" },
+    ],
+    []
+  );
+  const historyStatusOptions = useMemo(
+    () => [
+      { value: "all", label: "全部状态" },
+      { value: "running", label: "运行中" },
+      { value: "success", label: "成功" },
+      { value: "failed", label: "失败" },
+      { value: "stopped", label: "已停止" },
+      { value: "report_warning", label: "仅报告告警" },
+    ],
+    []
+  );
+  const reportCaseStatusOptions = useMemo(
+    () => [
+      { value: "all", label: "全部状态" },
+      { value: "passed", label: "通过" },
+      { value: "failed", label: "失败" },
+      { value: "skipped", label: "跳过" },
+    ],
+    []
+  );
+  const deviceTableColumns = useMemo(
+    () => [
+      { title: "设备序列号", dataIndex: "serial" },
+      { title: "状态", render: (_: unknown, d: Device) => formatDeviceStatus(d.status) },
+      { title: "任务状态", render: (_: unknown, d: Device) => formatRunStatus(deviceRuntimeMap[d.serial]?.status) },
+      { title: "品牌", render: (_: unknown, d: Device) => renderBrand(d.brand, 32) },
+      { title: "型号", dataIndex: "model" },
+      { title: "系统", dataIndex: "os_version" },
+      {
+        title: "鎼存梻鏁ら悧鍫熸拱",
+        render: (_: unknown, d: Device) =>
+          `Lysora: ${(d.app_versions && d.app_versions.lysora) || "-"} / Ruijie: ${
+            (d.app_versions && d.app_versions.ruijieCloud) || "-"
+          }`,
+      },
+    ],
+    [deviceRuntimeMap]
+  );
+  const reportTablePagination = useMemo(
+    () => ({
+      current: reportPagination.page,
+      pageSize: reportPagination.page_size,
+      total: reportPagination.total,
+      hideOnSinglePage: reportPagination.total <= reportPagination.page_size,
+      onChange: (page: number, pageSize: number) => {
+        setReportPage(page);
+        setReportPageSize(pageSize);
+      },
+    }),
+    [reportPagination.page, reportPagination.page_size, reportPagination.total]
+  );
+  const resultsTableColumns = useMemo(
+    () => [
+      { title: "任务ID", dataIndex: "task_id", width: 130 },
+      { title: "设备", dataIndex: "device_serial", width: 140 },
+      {
+        title: "状态",
+        render: (_: unknown, r: TaskHistoryItem) => {
+          const s = (r.status || "").toLowerCase();
+          const color =
+            s === "success" ? "green" :
+            s === "failed" ? "red" :
+            s === "running" ? "blue" :
+            s === "stopped" ? "orange" : "default";
+          const warn = hasReportWarning(r);
+          return (
+            <Space size={6}>
+              <Tag color={color}>{formatRunStatus(r.status)}</Tag>
+              {warn && <Tag color="gold" title={r.allure_output || "报告后处理存在告警"}>报告告警</Tag>}
+            </Space>
+          );
+        },
+        width: 190,
+      },
+      { title: "开始时间", dataIndex: "start_time", width: 170 },
+      { title: "结束时间", dataIndex: "end_time", width: 170 },
+      { title: "Pytest结果", render: (_: unknown, r: TaskHistoryItem) => formatExitCode(r.pytest_exit_code), width: 120 },
+      { title: "报告结果", render: (_: unknown, r: TaskHistoryItem) => formatExitCode(r.allure_exit_code), width: 120 },
+      {
+        title: "操作",
+        width: 180,
+        render: (_: unknown, r: TaskHistoryItem) => (
+          <Space size={6}>
+            <Button
+              size="small"
+              disabled={!r.has_report}
+              onClick={(ev) => {
+                ev.stopPropagation();
+                if (!r.has_report) return;
+                const url = r.report_url || "/api/task_report/" + encodeURIComponent(r.task_id);
+                window.open(url, "_blank");
+              }}
+            >
+              查看报告
+            </Button>
+            <Button
+              size="small"
+              onClick={(ev) => {
+                ev.stopPropagation();
+                window.open("/api/task_log/" + encodeURIComponent(r.task_id), "_blank");
+              }}
+            >
+              下载日志
+            </Button>
+          </Space>
+        ),
+      },
+    ],
+    []
+  );
+
+  const reportCaseColumns = useMemo(
+    () => [
+      { title: "#", dataIndex: "case_index", width: 50 },
+      { title: "测试用例", dataIndex: "name", ellipsis: true },
+      {
+        title: "状态",
+        width: 90,
+        render: (_: unknown, r: TaskReportCase) => {
+          const s = (r.status || "").toLowerCase();
+          const color = s === "passed" ? "green" : s === "failed" ? "red" : s === "skipped" ? "orange" : "default";
+          return <Tag color={color}>{formatCaseStatus(r.status)}</Tag>;
+        },
+      },
+      {
+        title: "耗时",
+        width: 90,
+        render: (_: unknown, r: TaskReportCase) => (r.duration || 0).toFixed(2) + "s",
+      },
+      { title: "应用", dataIndex: "app", width: 100 },
+    ],
+    []
+  );
+
+
 
   const refreshDeviceRuntime = async (deviceSerial: string) => {
-    // 刷新单个设备的实时任务状态并更新缓存。
+    // 鍒锋柊鍗曚釜璁惧鐨勫疄鏃朵换鍔＄姸鎬佸苟鏇存柊缂撳瓨銆?
     const res = await apiRequest<{ ok: boolean; device_status: DeviceRuntimeStatus }>(
       `/api/device_status/${encodeURIComponent(deviceSerial)}`
     );
     if (res.ok && res.device_status) {
-      setDeviceRuntimeMap((old) => ({ ...old, [deviceSerial]: res.device_status }));
+      setDeviceRuntimeMap((old) => {
+        if (isSameDeviceRuntimeStatus(old[deviceSerial], res.device_status)) {
+          return old;
+        }
+        return { ...old, [deviceSerial]: res.device_status };
+      });
       return res.device_status;
     }
     return null;
   };
 
   const refreshTaskHistory = async () => {
-    // 按当前筛选条件拉取任务历史，并同步可选报告任务。
+    // 鎸夊綋鍓嶇瓫閫夋潯浠舵媺鍙栦换鍔″巻鍙诧紝骞跺悓姝ュ彲閫夋姤鍛婁换鍔°€?
     const params = new URLSearchParams();
     params.set("limit", "30");
     if (selectedDevice) params.set("device", selectedDevice);
@@ -335,7 +604,7 @@ function App() {
     const res = await apiRequest<{ ok: boolean; tasks: TaskHistoryItem[] }>(url);
     if (res.ok) {
       const list = res.tasks || [];
-      setTaskHistory(list);
+      setTaskHistory((old) => (isSameTaskHistoryList(old, list) ? old : list));
       setReportTaskId((old) => {
         if (old && list.some((t) => t.task_id === old && t.has_report_data)) return old;
         return list.find((t) => t.has_report_data)?.task_id;
@@ -344,60 +613,97 @@ function App() {
   };
 
   const refreshTaskReportData = async (taskId?: string) => {
-    // 拉取并更新任务报告摘要与用例明细。
+    // 鎷夊彇骞舵洿鏂颁换鍔℃姤鍛婃憳瑕佷笌鐢ㄤ緥鏄庣粏銆?
     const targetTaskId = taskId || reportTaskId;
     if (!targetTaskId) {
-      setReportSummary(undefined);
-      setReportCases([]);
+      setReportSummary((old) => (old === undefined ? old : undefined));
+      setReportCases((old) => (old.length === 0 ? old : []));
+      setReportPagination((old) => {
+        const next = { page: 1, page_size: reportPageSize, total: 0 };
+        return isSameReportPagination(old, next) ? old : next;
+      });
       return;
     }
     setReportLoading(true);
     try {
+      const params = new URLSearchParams();
+      params.set("page", String(reportPage));
+      params.set("page_size", String(reportPageSize));
+      if (reportCaseStatusFilter !== "all") {
+        params.set("status", reportCaseStatusFilter);
+      }
       const res = await apiRequest<
-        ApiOk & { task_id: string; summary: TaskReportSummary; tests: TaskReportCase[] }
-      >(`/api/task_report_data/${encodeURIComponent(targetTaskId)}`);
+        ApiOk & {
+          task_id: string;
+          summary: TaskReportSummary;
+          tests: TaskReportCase[];
+          pagination?: ReportPagination;
+        }
+      >(`/api/task_report_data/${encodeURIComponent(targetTaskId)}?${params.toString()}`);
       if (!res.ok) {
-        setReportSummary(undefined);
-        setReportCases([]);
+        setReportSummary((old) => (old === undefined ? old : undefined));
+        setReportCases((old) => (old.length === 0 ? old : []));
+        setReportPagination((old) => {
+          const next = { page: 1, page_size: reportPageSize, total: 0 };
+          return isSameReportPagination(old, next) ? old : next;
+        });
         return;
       }
-      setReportSummary(res.summary);
-      setReportCases(res.tests || []);
+      const nextSummary = res.summary;
+      const nextCases = res.tests || [];
+      const nextPagination =
+        res.pagination || {
+          page: reportPage,
+          page_size: reportPageSize,
+          total: res.tests?.length || 0,
+        };
+      setReportSummary((old) => (isSameReportSummary(old, nextSummary) ? old : nextSummary));
+      setReportCases((old) => (isSameReportCases(old, nextCases) ? old : nextCases));
+      setReportPagination((old) => (isSameReportPagination(old, nextPagination) ? old : nextPagination));
     } catch (err) {
-      setReportSummary(undefined);
-      setReportCases([]);
-      msgApi.error(`加载任务报告失败: ${String(err)}`);
+      setReportSummary((old) => (old === undefined ? old : undefined));
+      setReportCases((old) => (old.length === 0 ? old : []));
+      msgApi.error(`鍔犺浇浠诲姟鎶ュ憡澶辫触: ${String(err)}`);
     } finally {
       setReportLoading(false);
     }
   };
 
   const refreshDevices = async () => {
-    // 刷新设备列表，同时补齐每台设备的运行状态。
-    setLogText("正在刷新设备...");
+    // 鍒锋柊璁惧鍒楄〃锛屽悓鏃惰ˉ榻愭瘡鍙拌澶囩殑杩愯鐘舵€併€?
+    setLogText("姝ｅ湪鍒锋柊璁惧...");
     const res = await apiRequest<{ ok: boolean; devices: Device[]; error?: string }>(
       "/api/list_devices",
       {}
     );
     if (!res.ok) {
-      setLogText(`刷新设备失败:\n${res.error || "unknown error"}`);
+      setLogText(`鍒锋柊璁惧澶辫触:\n${res.error || "unknown error"}`);
       return;
     }
     const list = res.devices || [];
     setDevices(list);
+    const nextRuntimeMap: Record<string, DeviceRuntimeStatus> = {};
     for (const d of list) {
-      await refreshDeviceRuntime(d.serial);
+      nextRuntimeMap[d.serial] = d.runtime_status || {
+        device_serial: d.serial,
+        status: "idle",
+        task_id: null,
+        message: "",
+        updated_at: null,
+      };
     }
+    setDeviceRuntimeMap(nextRuntimeMap);
     if (list.length > 0) {
       setSelectedDevice((old) => old && list.some((d) => d.serial === old) ? old : list[0].serial);
     } else {
       setSelectedDevice(undefined);
+      setDeviceRuntimeMap({});
       setLogText("未找到可用设备，请检查 adb devices。");
     }
   };
 
   const refreshApps = async () => {
-    // 获取应用选项并校正当前选中项。
+    // 鑾峰彇搴旂敤閫夐」骞舵牎姝ｅ綋鍓嶉€変腑椤广€?
     const res = await apiRequest<AppOption[]>("/api/get_app_options");
     setApps(res || []);
     if (res?.length) {
@@ -406,7 +712,7 @@ function App() {
   };
 
   const refreshPackages = async (appKey?: string) => {
-    // 根据应用刷新可执行用例包，并维护执行队列选择状态。
+    // 鏍规嵁搴旂敤鍒锋柊鍙墽琛岀敤渚嬪寘锛屽苟缁存姢鎵ц闃熷垪閫夋嫨鐘舵€併€?
     const targetApp = appKey || selectedApp;
     if (!targetApp) return;
     const res = await apiRequest<{
@@ -419,7 +725,7 @@ function App() {
       { app_key: targetApp }
     );
     if (!res.ok) {
-      setLogText(`加载用例包失败:\n${res.error || "unknown error"}`);
+      setLogText(`加载用例包失败\n${res.error || "unknown error"}`);
       return;
     }
     const rawList = Array.isArray(res.packages) ? res.packages : [];
@@ -450,7 +756,7 @@ function App() {
   };
 
   const addSelectedCase = () => {
-    // 将当前选中的用例包加入待执行列表（避免重复）。
+    // 灏嗗綋鍓嶉€変腑鐨勭敤渚嬪寘鍔犲叆寰呮墽琛屽垪琛紙閬垮厤閲嶅锛夈€?
     const selectedValue = normalizePackageValue(selectedPackage);
     if (!selectedValue) return;
     if (executionPackages.includes(selectedValue)) {
@@ -464,7 +770,7 @@ function App() {
   };
 
   const addAllCases = () => {
-    // 批量将可选用例加入待执行列表，自动跳过重复项。
+    // 鎵归噺灏嗗彲閫夌敤渚嬪姞鍏ュ緟鎵ц鍒楄〃锛岃嚜鍔ㄨ烦杩囬噸澶嶉」銆?
     let added = 0;
     let skipped = 0;
     const next = normalizePackageQueue(executionPackages);
@@ -482,7 +788,7 @@ function App() {
   };
 
   const removeSelectedCase = () => {
-    // 移除当前高亮选中的待执行用例。
+    // 绉婚櫎褰撳墠楂樹寒閫変腑鐨勫緟鎵ц鐢ㄤ緥銆?
     if (selectedExecutionIndex < 0 || selectedExecutionIndex >= executionPackages.length) return;
     const next = executionPackages.filter((_, idx) => idx !== selectedExecutionIndex);
     setExecutionPackages(normalizePackageQueue(next));
@@ -490,7 +796,7 @@ function App() {
   };
 
   const moveSelectedCase = (offset: number) => {
-    // 按给定偏移量调整待执行用例顺序。
+    // 鎸夌粰瀹氬亸绉婚噺璋冩暣寰呮墽琛岀敤渚嬮『搴忋€?
     const from = selectedExecutionIndex;
     const to = from + offset;
     if (from < 0 || from >= executionPackages.length) return;
@@ -503,7 +809,7 @@ function App() {
   };
 
   const runTests = async () => {
-    // 校验执行前提并创建测试任务。
+    // 鏍￠獙鎵ц鍓嶆彁骞跺垱寤烘祴璇曚换鍔°€?
     try {
       const appium = await apiRequest<{ running: boolean; server_url?: string; error?: string }>(
         "/api/appium_ready"
@@ -511,30 +817,30 @@ function App() {
       if (!appium.running) {
         const addr = appium.server_url || "http://127.0.0.1:4723";
         msgApi.error(`Appium 未启动（${addr}）`);
-        setLogText(`执行已取消：Appium 未启动\n地址: ${addr}\n详情: ${appium.error || "unknown error"}`);
+        setLogText(`鎵ц宸插彇娑堬細Appium 鏈惎鍔╘n鍦板潃: ${addr}\n璇︽儏: ${appium.error || "unknown error"}`);
         setActiveTab("results");
         return;
       }
       if (!executionPackages.length) {
-        msgApi.error("请先添加至少一个待执行用例");
+        msgApi.error("璇峰厛娣诲姞鑷冲皯涓€涓緟鎵ц鐢ㄤ緥");
         return;
       }
       if (!selectedDevice) {
-        msgApi.error("请先选择手机设备");
+        msgApi.error("璇峰厛閫夋嫨鎵嬫満璁惧");
         return;
       }
       if (!selectedApp) {
-        msgApi.error("请先选择应用");
+        msgApi.error("璇峰厛閫夋嫨搴旂敤");
         return;
       }
       if (isSelectedDeviceRunning) {
-        msgApi.warning("该手机已有任务在运行中，不能重复启动");
+        msgApi.warning("璇ユ墜鏈哄凡鏈変换鍔″湪杩愯涓紝涓嶈兘閲嶅鍚姩");
         return;
       }
 
       setActiveTab("results");
       setLogText(
-        `正在执行测试，请稍候...\n执行顺序:\n${executionPackages
+        `姝ｅ湪鎵ц娴嬭瘯锛岃绋嶅€?..\n鎵ц椤哄簭:\n${executionPackages
           .map((p, i) => `${i + 1}. ${p}`)
           .join("\n")}`
       );
@@ -548,7 +854,7 @@ function App() {
         }
       );
       if (!res.ok) {
-        setLogText(`执行失败\n\n${res.error || "unknown error"}`);
+        setLogText(`鎵ц澶辫触\n\n${res.error || "unknown error"}`);
         return;
       }
       if (res.task_id) {
@@ -556,16 +862,16 @@ function App() {
         await refreshDeviceRuntime(selectedDevice);
         await refreshTaskHistory();
         msgApi.success(`任务已启动: ${res.task_id}`);
-        setLogText((old) => `${old}\n\n任务已创建: ${res.task_id}`);
+        setLogText((old) => `${old}\n\n浠诲姟宸插垱寤? ${res.task_id}`);
       }
     } catch (err) {
-      msgApi.error("启动任务失败");
-      setLogText(`执行失败\n\n${String(err)}`);
+      msgApi.error("鍚姩浠诲姟澶辫触");
+      setLogText(`鎵ц澶辫触\n\n${String(err)}`);
     }
   };
 
   const stopCurrentTask = async () => {
-    // 请求后端停止当前设备上的任务，并刷新状态。
+    // 璇锋眰鍚庣鍋滄褰撳墠璁惧涓婄殑浠诲姟锛屽苟鍒锋柊鐘舵€併€?
     if (!selectedDevice) return;
     const res = await apiRequest<ApiOk & { task_id?: string; status?: string }>(
       "/api/stop_task",
@@ -575,7 +881,7 @@ function App() {
       }
     );
     if (!res.ok) {
-      msgApi.error(res.error || "停止任务失败");
+      msgApi.error(res.error || "鍋滄浠诲姟澶辫触");
       return;
     }
     msgApi.info("停止请求已发送");
@@ -584,17 +890,17 @@ function App() {
   };
 
   const openReport = async () => {
-    // 打开最近一次生成的测试报告。
+    // 鎵撳紑鏈€杩戜竴娆＄敓鎴愮殑娴嬭瘯鎶ュ憡銆?
     const res = await apiRequest<ApiOk>("/api/open_report", {});
     if (!res.ok) {
-      msgApi.error(res.error || "打开报告失败");
+      msgApi.error(res.error || "鎵撳紑鎶ュ憡澶辫触");
     }
   };
 
   const refreshSelectedDeviceStatus = async () => {
-    // 手动刷新当前选中设备状态，并同步当前任务 ID。
+    // 鎵嬪姩鍒锋柊褰撳墠閫変腑璁惧鐘舵€侊紝骞跺悓姝ュ綋鍓嶄换鍔?ID銆?
     if (!selectedDevice) {
-      msgApi.warning("请先选择手机设备");
+      msgApi.warning("璇峰厛閫夋嫨鎵嬫満璁惧");
       return;
     }
     const s = await refreshDeviceRuntime(selectedDevice);
@@ -605,10 +911,14 @@ function App() {
     }
   };
 
-  const refreshCurrentTaskStatus = async () => {
-    // 拉取当前任务状态与日志输出，并在结束后做收尾刷新。
+  const refreshCurrentTaskStatus = async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    // 鎷夊彇褰撳墠浠诲姟鐘舵€佷笌鏃ュ織杈撳嚭锛屽苟鍦ㄧ粨鏉熷悗鍋氭敹灏惧埛鏂般€?
     if (!currentTaskId) {
-      msgApi.warning("当前没有可刷新的任务");
+      if (silent) {
+        return;
+      }
+      msgApi.warning("褰撳墠娌℃湁鍙埛鏂扮殑浠诲姟");
       return;
     }
     try {
@@ -626,11 +936,11 @@ function App() {
       >(`/api/task_status/${encodeURIComponent(currentTaskId)}`);
       if (!res.ok) return;
       setLogText(
-        `任务: ${res.task_id}\n状态: ${formatRunStatus(res.status)}\nPytest结果: ${formatExitCode(
+        `浠诲姟: ${res.task_id}\n鐘舵€? ${formatRunStatus(res.status)}\nPytest缁撴灉: ${formatExitCode(
           res.pytest_exit_code
-        )}\n报告结果: ${formatExitCode(res.allure_exit_code)}\n\n${res.pytest_output || ""}\n\n--- 报告输出 ---\n${
+        )}\n鎶ュ憡缁撴灉: ${formatExitCode(res.allure_exit_code)}\n\n${res.pytest_output || ""}\n\n--- 鎶ュ憡杈撳嚭 ---\n${
           res.allure_output || ""
-        }${res.error ? `\n\n错误: ${res.error}` : ""}`
+        }${res.error ? `\n\n閿欒: ${res.error}` : ""}`
       );
       if (res.status && ["success", "failed", "stopped"].includes(res.status)) {
         setCurrentTaskId(undefined);
@@ -639,39 +949,46 @@ function App() {
         msgApi.info(`任务已结束: ${res.status}`);
       }
     } catch {
+      if (silent) {
+        return;
+      }
       msgApi.error("刷新任务状态失败");
     }
   };
 
   useEffect(() => {
-    // 页面首次加载：拉取启动依赖信息、应用、设备与历史数据。
+    // 椤甸潰棣栨鍔犺浇锛氭媺鍙栧惎鍔ㄤ緷璧栦俊鎭€佸簲鐢ㄣ€佽澶囦笌鍘嗗彶鏁版嵁銆?
     (async () => {
       try {
         const startup = await apiRequest<{ missing_dependencies?: string[] }>("/api/startup_info");
         setStartupMissing(startup.missing_dependencies || []);
-        await refreshApps();
-        await refreshDevices();
-        await refreshTaskHistory();
+        await Promise.all([refreshApps(), refreshDevices()]);
       } catch (err) {
-        setLogText(`页面初始化失败:\n${String(err)}`);
+        setLogText(`页面初始化失败\n${String(err)}`);
       }
+      setStartupReady(true);
     })();
   }, []);
 
   useEffect(() => {
-    // 应用切换后，自动刷新对应的用例包。
+    // 搴旂敤鍒囨崲鍚庯紝鑷姩鍒锋柊瀵瑰簲鐨勭敤渚嬪寘銆?
     if (selectedApp) {
       refreshPackages(selectedApp);
     }
   }, [selectedApp]);
 
   useEffect(() => {
-    // 设备或历史筛选变更后，自动刷新任务历史。
-    refreshTaskHistory();
-  }, [selectedDevice, historyStatusFilter]);
+    setReportPage(1);
+  }, [reportTaskId, reportCaseStatusFilter]);
 
   useEffect(() => {
-    // 设备切换后，自动刷新设备状态并恢复运行中的任务上下文。
+    // 璁惧鎴栧巻鍙茬瓫閫夊彉鏇村悗锛岃嚜鍔ㄥ埛鏂颁换鍔″巻鍙层€?
+    if (!startupReady) return;
+    refreshTaskHistory();
+  }, [historyStatusFilter, selectedDevice, startupReady]);
+
+  useEffect(() => {
+    // 璁惧鍒囨崲鍚庯紝鑷姩鍒锋柊璁惧鐘舵€佸苟鎭㈠杩愯涓殑浠诲姟涓婁笅鏂囥€?
     if (!selectedDevice) return;
     refreshDeviceRuntime(selectedDevice).then((s) => {
       if (s?.status === "running" && s.task_id) {
@@ -681,22 +998,44 @@ function App() {
   }, [selectedDevice]);
 
   useEffect(() => {
-    // 有当前任务时，自动触发一次任务状态刷新。
-    if (!currentTaskId) return;
-    refreshCurrentTaskStatus();
-  }, [currentTaskId, selectedDevice]);
+    if (!selectedDevice) return;
+    if (!shouldPollDeviceStatus) return;
+    const timer = window.setInterval(() => {
+      void refreshDeviceRuntime(selectedDevice);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [selectedDevice, shouldPollDeviceStatus]);
 
   useEffect(() => {
-    // 报告任务切换后，自动加载对应报告数据。
-    if (!reportTaskId) return;
+    // 鏈夊綋鍓嶄换鍔℃椂锛岃嚜鍔ㄨЕ鍙戜竴娆′换鍔＄姸鎬佸埛鏂般€?
+    if (!shouldPollTaskStatus) return;
+    void refreshCurrentTaskStatus({ silent: true });
+    const timer = window.setInterval(() => {
+      void refreshCurrentTaskStatus({ silent: true });
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [currentTaskId, shouldPollTaskStatus]);
+
+  useEffect(() => {
+    // 娴犲懎婀紒鎾寸亯妞ゅ吀绗栫€涙ê婀潻鎰攽娴犺濮熼弮璁圭礉閹靛秴鎳嗛張鐔糕偓褍鍩涢弬鏉垮坊閸欐彃鍨悰顭掔礉闁灝鍘ら崗鏈电铂妞ょ敻娼伴惃鍕￥閺佸牐顕Ч鍌樷偓?
+    if (!shouldPollTaskHistory) return;
+    const timer = window.setInterval(() => {
+      void refreshTaskHistory();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [historyStatusFilter, shouldPollTaskHistory]);
+
+  useEffect(() => {
+    // 鎶ュ憡浠诲姟鍒囨崲鍚庯紝鑷姩鍔犺浇瀵瑰簲鎶ュ憡鏁版嵁銆?
+    if (!shouldLoadReportData || !reportTaskId) return;
     refreshTaskReportData(reportTaskId);
-  }, [reportTaskId]);
+  }, [reportCaseStatusFilter, reportPage, reportPageSize, reportTaskId, shouldLoadReportData]);
 
   return (
     <div style={{ width: "calc(100% - 24px)", maxWidth: "none", margin: "8px 12px 16px", padding: 0 }}>
       {contextHolder}
       <Typography.Title level={3} style={{ marginTop: 4 }}>
-        移动自动化测试桌面端
+        绉诲姩鑷姩鍖栨祴璇曟闈㈢
       </Typography.Title>
 
       {startupMissing.length > 0 && (
@@ -713,10 +1052,10 @@ function App() {
           activeKey={activeTab}
           onChange={setActiveTab}
           items={[
-            { key: "devices", label: "手机终端" },
-            { key: "runner", label: "用例执行" },
-            { key: "results", label: "执行结果" },
-            { key: "report", label: "测试报告" },
+            { key: "devices", label: "鎵嬫満缁堢" },
+            { key: "runner", label: "鐢ㄤ緥鎵ц" },
+            { key: "results", label: "鎵ц缁撴灉" },
+            { key: "report", label: "娴嬭瘯鎶ュ憡" },
           ]}
         />
       </Card>
@@ -724,56 +1063,36 @@ function App() {
       {activeTab === "devices" && (
         <Card title="当前连接的手机终端">
           <Space style={{ marginBottom: 12 }}>
-            <Button onClick={refreshDevices}>刷新设备</Button>
+            <Button onClick={refreshDevices}>鍒锋柊璁惧</Button>
           </Space>
           <Table<Device>
             rowKey="serial"
             pagination={false}
             dataSource={devices}
-            columns={[
-              { title: "设备序列号", dataIndex: "serial" },
-              { title: "状态", render: (_, d) => formatDeviceStatus(d.status) },
-              { title: "任务状态", render: (_, d) => formatRunStatus(deviceRuntimeMap[d.serial]?.status) },
-              {
-                title: "品牌",
-                render: (_, d) => renderBrand(d.brand, 32),
-              },
-              {
-                title: "型号",
-                dataIndex: "model",
-              },
-              { title: "系统", dataIndex: "os_version" },
-              {
-                title: "应用版本",
-                render: (_, d) =>
-                  `Lysora: ${(d.app_versions && d.app_versions.lysora) || "-"} / Ruijie: ${
-                    (d.app_versions && d.app_versions.ruijieCloud) || "-"
-                  }`,
-              },
-            ]}
+            columns={deviceTableColumns}
           />
         </Card>
       )}
 
       {activeTab === "runner" && (
-        <Card title="选择终端、测试用例并执行">
+        <Card title="閫夋嫨缁堢銆佹祴璇曠敤渚嬪苟鎵ц">
           <Row gutter={[12, 12]}>
             <Col span={6}>
-              <label>手机设备</label>
+              <label>鎵嬫満璁惧</label>
               <Select
                 style={{ width: "100%" }}
                 value={selectedDevice}
                 onChange={setSelectedDevice}
-                options={devices.map((d) => ({ value: d.serial, label: `${d.serial} (${formatDeviceStatus(d.status)})` }))}
+                options={deviceSelectOptions}
               />
             </Col>
             <Col span={6}>
-              <label>应用</label>
+              <label>搴旂敤</label>
               <Select
                 style={{ width: "100%" }}
                 value={selectedApp}
                 onChange={setSelectedApp}
-                options={apps.map((a) => ({ value: a.key, label: a.label }))}
+                options={appSelectOptions}
               />
             </Col>
             <Col span={6}>
@@ -782,11 +1101,7 @@ function App() {
                 style={{ width: "100%" }}
                 value={selectedPackage}
                 onChange={(value) => setSelectedPackage(normalizePackageValue(value))}
-                options={packages.map((item) => ({
-                  value: item.value,
-                  label: item.label,
-                  title: item.tooltip || item.label,
-                }))}
+                options={packageSelectOptions}
               />
             </Col>
             <Col span={6}>
@@ -795,14 +1110,11 @@ function App() {
                 style={{ width: "100%" }}
                 value={suite}
                 onChange={setSuite}
-                options={[
-                  { value: "all", label: "全部" },
-                  { value: "smoke", label: "冒烟测试" },
-                  { value: "full", label: "全量测试" },
-                ]}
+                options={suiteOptions}
               />
             </Col>
           </Row>
+
 
           <Space style={{ marginTop: 12 }}>
             <Button htmlType="button" onClick={refreshSelectedDeviceStatus}>刷新设备状态</Button>
@@ -817,33 +1129,33 @@ function App() {
               }}
               disabled={isSelectedDeviceRunning}
             >
-              启动执行
+              鍚姩鎵ц
             </Button>
             <Button htmlType="button" danger onClick={stopCurrentTask} disabled={!isSelectedDeviceRunning}>
-              停止任务
+              鍋滄浠诲姟
             </Button>
           </Space>
 
           <Card
             size="small"
             style={{ marginTop: 12, background: "#fafafa" }}
-            title="待执行用例（按列表顺序执行）"
+            title="寰呮墽琛岀敤渚嬶紙鎸夊垪琛ㄩ『搴忔墽琛岋級"
             extra={
               <Space wrap>
                 <Button size="small" onClick={addSelectedCase}>
-                  添加
+                  娣诲姞
                 </Button>
                 <Button size="small" onClick={addAllCases}>
-                  添加全部
+                  娣诲姞鍏ㄩ儴
                 </Button>
                 <Button size="small" onClick={removeSelectedCase}>
-                  移除
+                  绉婚櫎
                 </Button>
                 <Button size="small" onClick={() => moveSelectedCase(-1)}>
-                  上移
+                  涓婄Щ
                 </Button>
                 <Button size="small" onClick={() => moveSelectedCase(1)}>
-                  下移
+                  涓嬬Щ
                 </Button>
                 <Button
                   size="small"
@@ -852,7 +1164,7 @@ function App() {
                     setSelectedExecutionIndex(-1);
                   }}
                 >
-                  清空
+                  娓呯┖
                 </Button>
               </Space>
             }
@@ -876,29 +1188,29 @@ function App() {
 
           <Row gutter={10} style={{ marginTop: 12 }}>
             <Col span={5}>
-              <Card size="small" title="手机品牌" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
+              <Card size="small" title="鎵嬫満鍝佺墝" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
                 {renderBrand(currentDevice?.brand, 56)}
               </Card>
             </Col>
             <Col span={5}>
-              <Card size="small" title="设备型号" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
+              <Card size="small" title="璁惧鍨嬪彿" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
                 <span style={summaryValueStyle}>{currentDevice?.model || "-"}</span>
               </Card>
             </Col>
             <Col span={5}>
-              <Card size="small" title="系统版本" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
+              <Card size="small" title="绯荤粺鐗堟湰" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
                 <span style={summaryValueStyle}>{currentDevice?.os_version || "-"}</span>
               </Card>
             </Col>
             <Col span={4}>
-              <Card size="small" title="Lysora 版本" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
+              <Card size="small" title="Lysora 鐗堟湰" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
                 <span style={summaryValueStyle}>
                   {(currentDevice?.app_versions && currentDevice.app_versions.lysora) || "-"}
                 </span>
               </Card>
             </Col>
             <Col span={5}>
-              <Card size="small" title="ruijieCloud 版本" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
+              <Card size="small" title="ruijieCloud 鐗堟湰" style={summaryCardStyle} styles={{ body: summaryBodyStyle }}>
                 <span style={summaryValueStyle}>
                   {(currentDevice?.app_versions && currentDevice.app_versions.ruijieCloud) || "-"}
                 </span>
@@ -910,24 +1222,17 @@ function App() {
 
       {activeTab === "results" && (
         <Card
-          title="测试用例结果"
+          title="娴嬭瘯鐢ㄤ緥缁撴灉"
           extra={
             <Space>
               <Select
                 style={{ width: 150 }}
                 value={historyStatusFilter}
                 onChange={setHistoryStatusFilter}
-                options={[
-                  { value: "all", label: "全部状态" },
-                  { value: "running", label: "运行中" },
-                  { value: "success", label: "成功" },
-                  { value: "failed", label: "失败" },
-                  { value: "stopped", label: "已停止" },
-                  { value: "report_warning", label: "仅报告告警" },
-                ]}
+                options={historyStatusOptions}
               />
               <Button onClick={refreshTaskHistory}>刷新历史</Button>
-              <Button onClick={refreshCurrentTaskStatus} disabled={!currentTaskId}>
+              <Button onClick={() => void refreshCurrentTaskStatus()} disabled={!currentTaskId}>
                 刷新任务状态
               </Button>
               <Button onClick={openReport}>打开最近报告</Button>
@@ -949,62 +1254,7 @@ function App() {
               },
               style: { cursor: "pointer" },
             })}
-            columns={[
-              { title: "任务ID", dataIndex: "task_id", width: 130 },
-              { title: "设备", dataIndex: "device_serial", width: 140 },
-              {
-                title: "状态",
-                render: (_, r) => {
-                  const s = (r.status || "").toLowerCase();
-                  const color =
-                    s === "success" ? "green" :
-                    s === "failed" ? "red" :
-                    s === "running" ? "blue" :
-                    s === "stopped" ? "orange" : "default";
-                  const warn = hasReportWarning(r);
-                  return (
-                    <Space size={6}>
-                      <Tag color={color}>{formatRunStatus(r.status)}</Tag>
-                      {warn && <Tag color="gold" title={r.allure_output || "报告后处理存在告警"}>报告告警</Tag>}
-                    </Space>
-                  );
-                },
-                width: 190,
-              },
-              { title: "开始时间", dataIndex: "start_time", width: 170 },
-              { title: "结束时间", dataIndex: "end_time", width: 170 },
-              { title: "Pytest结果", render: (_, r) => formatExitCode(r.pytest_exit_code), width: 120 },
-              { title: "报告结果", render: (_, r) => formatExitCode(r.allure_exit_code), width: 120 },
-              {
-                title: "操作",
-                width: 180,
-                render: (_, r) => (
-                  <Space size={6}>
-                    <Button
-                      size="small"
-                      disabled={!r.has_report}
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        if (!r.has_report) return;
-                        const url = r.report_url || `/api/task_report/${encodeURIComponent(r.task_id)}`;
-                        window.open(url, "_blank");
-                      }}
-                    >
-                      查看报告
-                    </Button>
-                    <Button
-                      size="small"
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        window.open(`/api/task_log/${encodeURIComponent(r.task_id)}`, "_blank");
-                      }}
-                    >
-                      下载日志
-                    </Button>
-                  </Space>
-                ),
-              },
-            ]}
+            columns={resultsTableColumns}
             style={{ marginBottom: 12 }}
           />
           <pre
@@ -1028,12 +1278,12 @@ function App() {
 
       {activeTab === "report" && (
         <Card
-          title="测试报告"
+          title="娴嬭瘯鎶ュ憡"
           extra={
             <Space wrap>
               <Select
                 style={{ width: 340 }}
-                placeholder="选择任务"
+                placeholder="閫夋嫨浠诲姟"
                 value={reportTaskId}
                 onChange={(v) => setReportTaskId(v)}
                 options={reportTasks}
@@ -1041,24 +1291,22 @@ function App() {
               <Select
                 style={{ width: 120 }}
                 value={reportCaseStatusFilter}
-                onChange={setReportCaseStatusFilter}
-                options={[
-                  { value: "all", label: "全部状态" },
-                  { value: "passed", label: "通过" },
-                  { value: "failed", label: "失败" },
-                  { value: "skipped", label: "跳过" },
-                ]}
+                onChange={(value) => {
+                  setReportCaseStatusFilter(value);
+                  setReportPage(1);
+                }}
+                options={reportCaseStatusOptions}
               />
-              <Button onClick={() => refreshTaskReportData()}>刷新报告</Button>
+              <Button onClick={() => refreshTaskReportData()}>鍒锋柊鎶ュ憡</Button>
               <Button
                 disabled={!selectedReportTask?.has_report}
                 onClick={() => {
                   if (!selectedReportTask?.has_report) return;
-                  const url = selectedReportTask.report_url || `/api/task_report/${encodeURIComponent(selectedReportTask.task_id)}`;
+                  const url = selectedReportTask.report_url || "/api/task_report/" + encodeURIComponent(selectedReportTask.task_id);
                   window.open(url, "_blank");
                 }}
               >
-                打开HTML报告
+                鎵撳紑HTML鎶ュ憡
               </Button>
             </Space>
           }
@@ -1074,22 +1322,22 @@ function App() {
           {reportSummary && (
             <Row gutter={10} style={{ marginBottom: 12 }}>
               <Col span={4}>
-                <Card size="small" title="总计">
+                <Card size="small" title="鎬昏">
                   <Typography.Title level={4} style={{ margin: 0 }}>{reportSummary.total}</Typography.Title>
                 </Card>
               </Col>
               <Col span={4}>
-                <Card size="small" title="通过">
+                <Card size="small" title="閫氳繃">
                   <Typography.Title level={4} style={{ margin: 0, color: "#16a34a" }}>{reportSummary.passed}</Typography.Title>
                 </Card>
               </Col>
               <Col span={4}>
-                <Card size="small" title="失败">
+                <Card size="small" title="澶辫触">
                   <Typography.Title level={4} style={{ margin: 0, color: "#dc2626" }}>{reportSummary.failed}</Typography.Title>
                 </Card>
               </Col>
               <Col span={4}>
-                <Card size="small" title="跳过">
+                <Card size="small" title="璺宠繃">
                   <Typography.Title level={4} style={{ margin: 0, color: "#d97706" }}>{reportSummary.skipped}</Typography.Title>
                 </Card>
               </Col>
@@ -1099,24 +1347,24 @@ function App() {
                 </Card>
               </Col>
               <Col span={4}>
-                <Card size="small" title="总耗时">
+                <Card size="small" title="鎬昏€楁椂">
                   <Typography.Title level={4} style={{ margin: 0 }}>{(reportSummary.total_duration || 0).toFixed(1)}s</Typography.Title>
                 </Card>
               </Col>
             </Row>
           )}
           <Table<TaskReportCase>
-            rowKey={(r) => `${r.task_id}-${r.case_index}`}
+            rowKey={(r) => r.task_id + "-" + r.case_index}
             size="small"
             loading={reportLoading}
-            pagination={{ pageSize: 10, hideOnSinglePage: true }}
-            dataSource={filteredReportCases}
+            pagination={reportTablePagination}
+            dataSource={reportCases}
             expandable={{
               expandedRowRender: (record) => (
                 <div>
-                  <div><b>节点:</b> {record.node_id || "-"}</div>
+                  <div><b>鑺傜偣:</b> {record.node_id || "-"}</div>
                   <div style={{ marginTop: 6 }}>
-                    <b>错误:</b> {record.error_message || "-"}
+                    <b>閿欒:</b> {record.error_message || "-"}
                   </div>
                   <Space style={{ marginTop: 8 }}>
                     <Button
@@ -1124,14 +1372,14 @@ function App() {
                       disabled={!record.screenshot_url}
                       onClick={() => record.screenshot_url && window.open(record.screenshot_url, "_blank")}
                     >
-                      查看截图
+                      鏌ョ湅鎴浘
                     </Button>
                     <Button
                       size="small"
                       disabled={!record.video_url}
                       onClick={() => record.video_url && window.open(record.video_url, "_blank")}
                     >
-                      查看视频
+                      鏌ョ湅瑙嗛
                     </Button>
                   </Space>
                   {record.screenshot_url && (
@@ -1146,25 +1394,7 @@ function App() {
                 </div>
               ),
             }}
-            columns={[
-              { title: "#", dataIndex: "case_index", width: 50 },
-              { title: "测试用例", dataIndex: "name", ellipsis: true },
-              {
-                title: "状态",
-                width: 90,
-                render: (_, r) => {
-                  const s = (r.status || "").toLowerCase();
-                  const color = s === "passed" ? "green" : s === "failed" ? "red" : s === "skipped" ? "orange" : "default";
-                  return <Tag color={color}>{formatCaseStatus(r.status)}</Tag>;
-                },
-              },
-              {
-                title: "耗时",
-                width: 90,
-                render: (_, r) => `${(r.duration || 0).toFixed(2)}s`,
-              },
-              { title: "应用", dataIndex: "app", width: 100 },
-            ]}
+            columns={reportCaseColumns}
           />
         </Card>
       )}
@@ -1173,3 +1403,12 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+
+
+
+
