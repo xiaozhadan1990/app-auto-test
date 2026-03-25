@@ -126,7 +126,7 @@ function ReportTab({
         </Row>
       )}
       <Table
-        rowKey={(r) => r.task_id + "-" + r.case_index}
+        rowKey={(record) => `${record.task_id}-${record.case_index}`}
         size="small"
         loading={reportLoading}
         pagination={reportTablePagination}

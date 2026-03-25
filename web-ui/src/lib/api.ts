@@ -7,6 +7,7 @@ import type {
   RunTestsPayload,
   RunTestsResponse,
   StartupInfoResponse,
+  StopTaskResponse,
   StopTaskPayload,
   TaskHistoryResponse,
   TaskReportDataResponse,
@@ -20,7 +21,18 @@ async function apiRequest<T>(path: string, body?: unknown): Promise<T> {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!resp.ok) {
-    throw new Error(`HTTP ${resp.status}`);
+    let errorMessage = `HTTP ${resp.status}`;
+    try {
+      const payload = (await resp.json()) as { error?: unknown; message?: unknown };
+      if (typeof payload.error === "string" && payload.error.trim()) {
+        errorMessage = payload.error.trim();
+      } else if (typeof payload.message === "string" && payload.message.trim()) {
+        errorMessage = payload.message.trim();
+      }
+    } catch {
+      // Fall back to the HTTP status message if the response is not JSON.
+    }
+    throw new Error(errorMessage);
   }
   return (await resp.json()) as T;
 }
@@ -82,8 +94,8 @@ export async function runTests(payload: RunTestsPayload): Promise<RunTestsRespon
   return apiRequest<RunTestsResponse>("/api/run_tests", payload);
 }
 
-export async function stopTask(payload: StopTaskPayload): Promise<RunTestsResponse> {
-  return apiRequest<RunTestsResponse>("/api/stop_task", payload);
+export async function stopTask(payload: StopTaskPayload): Promise<StopTaskResponse> {
+  return apiRequest<StopTaskResponse>("/api/stop_task", payload);
 }
 
 export async function openReport(): Promise<{ ok: boolean; error?: string }> {

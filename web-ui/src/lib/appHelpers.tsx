@@ -73,8 +73,7 @@ function normalizeKey(value?: string): string {
 function getBrandImageUrl(brand?: string): string | null {
   const key = normalizeKey(brand);
   if (!key) return null;
-  if (phoneSvgMap[key]) return phoneSvgMap[key];
-  return null;
+  return phoneSvgMap[key] || null;
 }
 
 export function renderBrand(brand?: string, imageHeight = 36): ReactNode {
@@ -93,21 +92,21 @@ export function renderBrand(brand?: string, imageHeight = 36): ReactNode {
 }
 
 export function formatDeviceStatus(status?: string): string {
-  const s = (status || "").toLowerCase();
-  if (s === "device") return "已连接";
-  if (s === "offline") return "离线";
-  if (s === "unauthorized") return "未授权";
-  if (s === "recovery") return "恢复模式";
+  const normalized = (status || "").toLowerCase();
+  if (normalized === "device") return "已连接";
+  if (normalized === "offline") return "离线";
+  if (normalized === "unauthorized") return "未授权";
+  if (normalized === "recovery") return "恢复模式";
   return status || "-";
 }
 
 export function formatRunStatus(status?: string): string {
-  const s = (status || "").toLowerCase();
-  if (s === "running") return "运行中";
-  if (s === "failed") return "失败";
-  if (s === "success") return "成功";
-  if (s === "idle") return "空闲";
-  if (s === "stopped") return "已停止";
+  const normalized = (status || "").toLowerCase();
+  if (normalized === "running") return "运行中";
+  if (normalized === "failed") return "失败";
+  if (normalized === "success") return "成功";
+  if (normalized === "idle") return "空闲";
+  if (normalized === "stopped") return "已停止";
   return status || "空闲";
 }
 
@@ -119,10 +118,10 @@ export function formatExitCode(code?: number | null): string {
 }
 
 export function formatCaseStatus(status?: string): string {
-  const s = (status || "").toLowerCase();
-  if (s === "passed") return "通过";
-  if (s === "failed") return "失败";
-  if (s === "skipped") return "跳过";
+  const normalized = (status || "").toLowerCase();
+  if (normalized === "passed") return "通过";
+  if (normalized === "failed") return "失败";
+  if (normalized === "skipped") return "跳过";
   return status || "-";
 }
 
@@ -149,9 +148,9 @@ export function isSameDeviceRuntimeStatus(
 
 export function isSameTaskHistoryList(left: TaskHistoryItem[], right: TaskHistoryItem[]): boolean {
   if (left.length !== right.length) return false;
-  for (let i = 0; i < left.length; i += 1) {
-    const a = left[i];
-    const b = right[i];
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index];
+    const b = right[index];
     if (
       a.task_id !== b.task_id ||
       a.device_serial !== b.device_serial ||
@@ -188,9 +187,9 @@ export function isSameReportSummary(left?: TaskReportSummary, right?: TaskReport
 
 export function isSameReportCases(left: TaskReportCase[], right: TaskReportCase[]): boolean {
   if (left.length !== right.length) return false;
-  for (let i = 0; i < left.length; i += 1) {
-    const a = left[i];
-    const b = right[i];
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index];
+    const b = right[index];
     if (
       a.id !== b.id ||
       a.case_index !== b.case_index ||

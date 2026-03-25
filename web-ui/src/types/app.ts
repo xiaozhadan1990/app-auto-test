@@ -86,10 +86,12 @@ export type ReportPagination = {
 };
 
 export type StartupInfoResponse = {
+  ok?: boolean;
   missing_dependencies?: string[];
 };
 
 export type AppiumReadyResponse = {
+  ok?: boolean;
   running: boolean;
   server_url?: string;
   error?: string;
@@ -107,7 +109,7 @@ export type TaskReportDataResponse = ApiOk & {
   task_id: string;
   summary: TaskReportSummary;
   tests: TaskReportCase[];
-  pagination?: ReportPagination;
+  pagination: ReportPagination;
 };
 
 export type ListDevicesResponse = ApiOk & {
@@ -131,6 +133,11 @@ export type RunTestsResponse = ApiOk & {
   status?: string;
 };
 
+export type StopTaskResponse = ApiOk & {
+  task_id?: string;
+  status?: string;
+};
+
 export type StopTaskPayload = {
   task_id?: string;
   device: string;
@@ -145,4 +152,7 @@ export type TaskStatusResponse = ApiOk & {
   allure_output?: string;
   error?: string;
   device?: string;
+  has_report?: boolean;
+  report_url?: string | null;
+  has_report_data?: boolean;
 };
