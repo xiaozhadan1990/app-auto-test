@@ -1,30 +1,41 @@
-import { defineConfig, splitVendorChunkPlugin } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+function getPackageName(id: string): string | undefined {
+  const nodeModulesIndex = id.lastIndexOf("/node_modules/");
+  if (nodeModulesIndex === -1) return undefined;
+
+  const modulePath = id.slice(nodeModulesIndex + "/node_modules/".length);
+  const segments = modulePath.split("/");
+  if (segments.length === 0) return undefined;
+
+  if (segments[0].startsWith("@") && segments.length > 1) {
+    return `${segments[0]}/${segments[1]}`;
+  }
+  return segments[0];
+}
+
 function getVendorChunkName(id: string): string | undefined {
+  const packageName = getPackageName(id);
+  if (!packageName) {
+    return undefined;
+  }
+
   if (
-    id.includes("/react/") ||
-    id.includes("/react-dom/") ||
-    id.includes("/scheduler/") ||
-    id.includes("/use-sync-external-store/")
+    [
+      "react",
+      "react-dom",
+      "scheduler",
+      "use-sync-external-store",
+    ].includes(packageName)
   ) {
     return "react-vendor";
   }
-
-  if (
-    id.includes("/antd/") ||
-    id.includes("/@ant-design/") ||
-    id.includes("/rc-") ||
-    id.includes("/@rc-component/")
-  ) {
-    return "antd-vendor";
-  }
-
   return undefined;
 }
 
 export default defineConfig({
-  plugins: [react(), splitVendorChunkPlugin()],
+  plugins: [react()],
   build: {
     rollupOptions: {
       output: {
