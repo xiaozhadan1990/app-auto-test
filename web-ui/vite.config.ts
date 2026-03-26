@@ -37,6 +37,8 @@ function getVendorChunkName(id: string): string | undefined {
 export default defineConfig({
   plugins: [react()],
   build: {
+    outDir: "../ui",
+    emptyOutDir: true,
     rollupOptions: {
       output: {
         manualChunks(id) {

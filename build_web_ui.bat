@@ -141,7 +141,7 @@ set "PYARGS=%PYARGS% --collect-all ""selenium"""
 if exist ".env" set "PYARGS=%PYARGS% --add-data "".env;."""
 if exist ".env.example" set "PYARGS=%PYARGS% --add-data "".env.example;."""
 
-call %UV_CMD% run --cache-dir "%UV_CACHE_DIR%" pyinstaller %PYARGS% desktop_web_app.py
+call %UV_CMD% run --with pyinstaller --cache-dir "%UV_CACHE_DIR%" pyinstaller %PYARGS% desktop_web_app.py
 if errorlevel 1 (
     echo.
     echo [ERROR] PyInstaller build failed
