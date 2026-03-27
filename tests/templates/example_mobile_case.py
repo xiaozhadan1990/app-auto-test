@@ -5,6 +5,7 @@ from tests.common.base_page import BasePage
 
 @pytest.mark.smoke
 @pytest.mark.case_name("示例：新移动端用例模板")
+@pytest.mark.case_priority(50)
 def test_example_mobile_case(driver, mobile_platform):
     page = BasePage(driver)
 

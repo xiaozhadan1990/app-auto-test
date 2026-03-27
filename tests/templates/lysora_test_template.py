@@ -8,6 +8,7 @@ from tests.templates.lysora_page_template import LysoraFeaturePage
 @pytest.mark.smoke
 @pytest.mark.lysora
 @pytest.mark.case_name("Lysora 示例功能检查")
+@pytest.mark.case_priority(50)
 def test_lysora_feature_example(driver, lysora_app_id):
     BasePage(driver).activate_app(lysora_app_id)
 

@@ -17,6 +17,7 @@ export type TestPackageOption = {
   value: string;
   label: string;
   tooltip?: string;
+  priority?: number;
 };
 
 export type ApiOk = {

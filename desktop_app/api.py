@@ -14,7 +14,7 @@ class ApiDeps:
     remote_ws_log_file: Path
     app_config: dict[str, dict[str, str]]
     list_devices: Callable[[], dict[str, Any]]
-    list_test_packages: Callable[[str], list[dict[str, str]]]
+    list_test_packages: Callable[[str], list[dict[str, Any]]]
     run_tests: Callable[[dict[str, Any]], dict[str, Any]]
     task_status: Callable[[str], dict[str, Any]]
     get_task_history: Callable[..., list[dict[str, Any]]]

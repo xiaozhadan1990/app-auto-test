@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { fallbackPackageLabel, isSameDeviceRuntimeStatus, normalizePackageValue } from "../lib/appHelpers";
+import {
+  fallbackPackageLabel,
+  formatPackageLabel,
+  isSameDeviceRuntimeStatus,
+  normalizePackageValue,
+} from "../lib/appHelpers";
 import { getAppOptions, getDeviceRuntime, getStartupInfo, listDevices, listTestPackages } from "../lib/api";
 import type { AppOption, Device, DeviceRuntimeStatus, TestPackageOption } from "../types/app";
 
 type UseRunnerSetupOptions = {
   setLogText: Dispatch<SetStateAction<string>>;
 };
+
+function isAllCasesValue(value: string): boolean {
+  return !value.endsWith(".py");
+}
 
 function useRunnerSetup({ setLogText }: UseRunnerSetupOptions) {
   const [startupMissing, setStartupMissing] = useState<string[]>([]);
@@ -36,11 +45,26 @@ function useRunnerSetup({ setLogText }: UseRunnerSetupOptions) {
   );
   const packageSelectOptions = useMemo(
     () =>
-      packages.map((item) => ({
-        value: item.value,
-        label: item.label,
-        title: item.tooltip || item.label,
-      })),
+      [...packages]
+        .sort((left, right) => {
+          const leftIsAll = left.priority === 0 && isAllCasesValue(left.value);
+          const rightIsAll = right.priority === 0 && isAllCasesValue(right.value);
+          if (leftIsAll !== rightIsAll) {
+            return leftIsAll ? -1 : 1;
+          }
+          return 0;
+        })
+        .map((item) => {
+          const isAllCases = item.priority === 0 && isAllCasesValue(item.value);
+          const displayLabel = isAllCases
+            ? `${item.label}（按 case_priority 执行）`
+            : formatPackageLabel(item.label, item.priority);
+          return {
+            value: item.value,
+            label: displayLabel,
+            title: item.tooltip || displayLabel,
+          };
+        }),
     [packages]
   );
   const packageLabelMap = useMemo(() => {
@@ -48,8 +72,8 @@ function useRunnerSetup({ setLogText }: UseRunnerSetupOptions) {
     for (const item of packages) {
       const value = normalizePackageValue(item.value);
       if (!value) continue;
-      const label = (item.label || "").trim();
-      map[value] = label || fallbackPackageLabel(value);
+      const label = (item.label || "").trim() || fallbackPackageLabel(value);
+      map[value] = isAllCasesValue(value) ? label : formatPackageLabel(label, item.priority);
     }
     return map;
   }, [packages]);
@@ -123,7 +147,9 @@ function useRunnerSetup({ setLogText }: UseRunnerSetupOptions) {
         if (!value) return null;
         const label = String(entry?.label || value).trim() || value;
         const tooltip = String(entry?.tooltip || "").trim();
-        return { value, label, tooltip: tooltip || label };
+        const priorityRaw = (entry as { priority?: unknown }).priority;
+        const priority = typeof priorityRaw === "number" && Number.isFinite(priorityRaw) ? priorityRaw : undefined;
+        return { value, label, tooltip: tooltip || label, priority };
       })
       .filter((item): item is TestPackageOption => Boolean(item));
     setPackages(list);

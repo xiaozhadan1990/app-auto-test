@@ -66,6 +66,13 @@ export function resolvePackageLabel(input: unknown, labelMap: Record<string, str
   return labelMap[value] || fallbackPackageLabel(value);
 }
 
+export function formatPackageLabel(label: string, priority?: number): string {
+  if (typeof priority !== "number" || Number.isNaN(priority)) {
+    return label;
+  }
+  return `P${priority} · ${label}`;
+}
+
 function normalizeKey(value?: string): string {
   return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }

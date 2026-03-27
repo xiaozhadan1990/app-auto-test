@@ -349,7 +349,7 @@ class DesktopServiceContainer:
             item["runtime_status"] = runtime_status
         return result
 
-    def list_test_packages(self, app_key: str) -> list[dict[str, str]]:
+    def list_test_packages(self, app_key: str) -> list[dict[str, Any]]:
         return list_test_packages_impl(
             app_key=app_key,
             app_config=self.app_config,

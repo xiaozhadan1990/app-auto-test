@@ -1,5 +1,4 @@
 import io
-from pathlib import Path
 from typing import cast
 
 import pytest
@@ -47,6 +46,7 @@ def _assert_lysora_logo_rendered(page: BasePage) -> None:
 @pytest.mark.full
 @pytest.mark.lysora
 @pytest.mark.case_name("Lysora 首页 Logo 显示检查")
+@pytest.mark.case_priority(20)
 def test_lysora_home_has_logo(driver, lysora_app_id):
     page = BasePage(driver)
     page.activate_app(lysora_app_id)

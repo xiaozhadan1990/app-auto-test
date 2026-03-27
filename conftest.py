@@ -28,6 +28,7 @@ PROJECT_ROOT = Path(__file__).parent
 REPORTS_ROOT = PROJECT_ROOT / "reports"
 SCREENSHOTS_ROOT = REPORTS_ROOT / "screenshots"
 VIDEOS_ROOT = REPORTS_ROOT / "videos"
+DEFAULT_CASE_PRIORITY = 500
 
 
 def _load_local_env_file() -> None:
@@ -137,10 +138,53 @@ def _write_report_snapshot() -> None:
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "case_name(name): custom display name for reports")
+    config.addinivalue_line("markers", "case_priority(value): execution priority, smaller runs earlier")
     config.addinivalue_line("markers", "smoke: smoke tests")
     config.addinivalue_line("markers", "full: full regression tests")
     config.addinivalue_line("markers", "lysora: Lysora test cases")
     config.addinivalue_line("markers", "ruijieCloud: RuijieCloud test cases")
+
+
+def _parse_case_priority(item: pytest.Item) -> int:
+    marker = item.get_closest_marker("case_priority")
+    if marker is None:
+        return DEFAULT_CASE_PRIORITY
+
+    raw_value: Any | None = None
+    if marker.args:
+        raw_value = marker.args[0]
+    elif "value" in marker.kwargs:
+        raw_value = marker.kwargs["value"]
+    elif "priority" in marker.kwargs:
+        raw_value = marker.kwargs["priority"]
+
+    if raw_value is None:
+        return DEFAULT_CASE_PRIORITY
+
+    try:
+        value = int(raw_value)
+    except Exception:
+        return DEFAULT_CASE_PRIORITY
+    return value if value >= 0 else DEFAULT_CASE_PRIORITY
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if not items:
+        return
+
+    keyed_items = [(_parse_case_priority(item), item) for item in items]
+    keyed_items.sort(key=lambda pair: (pair[0], pair[1].nodeid))
+    items[:] = [item for _, item in keyed_items]
+
+    missing_count = sum(1 for priority, _ in keyed_items if priority == DEFAULT_CASE_PRIORITY)
+    if missing_count <= 0:
+        return
+    reporter = config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is not None:
+        reporter.write_line(
+            f"[case-priority] {missing_count} collected tests missing case_priority, "
+            f"using default {DEFAULT_CASE_PRIORITY}"
+        )
 
 
 @pytest.fixture(scope="session", autouse=True)

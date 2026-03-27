@@ -12,6 +12,10 @@ type UseExecutionQueueOptions = {
   msgApi: MessageApi;
 };
 
+function isAllCasesValue(value: string): boolean {
+  return !value.endsWith(".py");
+}
+
 function useExecutionQueue({ packages, selectedPackage, msgApi }: UseExecutionQueueOptions) {
   const [suite, setSuite] = useState("all");
   const [executionPackages, setExecutionPackages] = useState<string[]>([]);
@@ -33,21 +37,46 @@ function useExecutionQueue({ packages, selectedPackage, msgApi }: UseExecutionQu
   const addSelectedCase = () => {
     const selectedValue = normalizePackageValue(selectedPackage);
     if (!selectedValue) return;
+
+    const selectedIsAll = isAllCasesValue(selectedValue);
+    const hasAllInQueue = executionPackages.some(isAllCasesValue);
+
     if (executionPackages.includes(selectedValue)) {
       msgApi.info("该用例已在待执行列表中");
       setSelectedExecutionIndex(executionPackages.indexOf(selectedValue));
       return;
     }
+
+    if (selectedIsAll) {
+      setExecutionPackages([selectedValue]);
+      setSelectedExecutionIndex(0);
+      msgApi.info("已选择“全部用例”，将不再添加单独用例");
+      return;
+    }
+
+    if (hasAllInQueue) {
+      msgApi.info("当前已选择“全部用例”，请先移除后再添加单独用例");
+      return;
+    }
+
     const next = normalizePackageQueue([...executionPackages, selectedValue]);
     setExecutionPackages(next);
     setSelectedExecutionIndex(next.length - 1);
   };
 
   const addAllCases = () => {
+    if (executionPackages.some(isAllCasesValue)) {
+      msgApi.info("当前已选择“全部用例”，不能再批量添加单独用例");
+      return;
+    }
+
     let added = 0;
     let skipped = 0;
     const next = normalizePackageQueue(executionPackages);
     for (const p of packages) {
+      if (isAllCasesValue(p.value)) {
+        continue;
+      }
       if (next.includes(p.value)) {
         skipped += 1;
       } else {
