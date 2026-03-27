@@ -8,7 +8,7 @@ from tests.lysora.pages.my_page import LysoraMyPage
 @pytest.mark.full
 @pytest.mark.lysora
 @pytest.mark.case_name("Lysora 登录并校验 My 页账号")
-@pytest.mark.case_priority(10)
+@pytest.mark.case_priority(2)
 def test_lysora_login_and_verify_account_in_my_tab(driver, lysora_app_id, lysora_account):
     my_page = LysoraMyPage(driver)
     my_page.activate_app(lysora_app_id)
