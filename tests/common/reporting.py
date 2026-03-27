@@ -28,11 +28,15 @@ def resolve_app_group(node: pytest.Item | pytest.Collector | pytest.TestReport) 
         return "lysora"
     if "tests/ruijiecloud/" in nodeid or "tests\\ruijiecloud\\" in nodeid:
         return "ruijieCloud"
+    if "tests/reyee/" in nodeid or "tests\\reyee\\" in nodeid:
+        return "reyee"
     if hasattr(node, "get_closest_marker"):
         if node.get_closest_marker("lysora"):
             return "lysora"
         if node.get_closest_marker("ruijieCloud"):
             return "ruijieCloud"
+        if node.get_closest_marker("reyee"):
+            return "reyee"
     return "common"
 
 
