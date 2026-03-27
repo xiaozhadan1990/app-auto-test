@@ -14,3 +14,6 @@ class IOSReyeeMyPage(IOSReyeePage):
 
     def assert_account_visible(self, phone: str) -> None:
         self._not_implemented()
+
+    def is_account_visible(self, phone: str) -> bool:
+        self._not_implemented()

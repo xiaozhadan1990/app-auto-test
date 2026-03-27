@@ -24,11 +24,14 @@ class AndroidReyeeMyPage(BasePage):
         self.click_required(self.LOGIN_ENTRY_LOCATORS, "Register/Login entry not found", timeout=8)
 
     def assert_account_visible(self, phone: str) -> None:
+        self.save_extra_screenshot("reyee_login_my_account.png", "reyee")
+        assert self.is_account_visible(phone), (
+            f"Account phone not found on My page: {phone}"
+        )
+
+    def is_account_visible(self, phone: str) -> bool:
         account_locators = [
             (AppiumBy.XPATH, f'//*[contains(@text, "{phone}")]'),
             (AppiumBy.XPATH, f'//*[contains(@content-desc, "{phone}")]'),
         ]
-        self.save_extra_screenshot("reyee_login_my_account.png", "reyee")
-        assert self.first_visible(account_locators, timeout=8) is not None, (
-            f"Account phone not found on My page: {phone}"
-        )
+        return self.first_visible(account_locators, timeout=6) is not None

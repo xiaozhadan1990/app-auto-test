@@ -1,7 +1,7 @@
 [mcp_servers.appium-mcp]
-command = "npm"
+command = "npx"
 disabled = false
 startup_timeout_sec = 60
 type = "stdio"
-args = ["exec", "--yes", "--prefix", "D:\\workspace\\appProject\\app-auto-test\\reports", "appium-mcp@1.36.0"]
-env = { ANDROID_HOME = "C:\\Users\\xujia\\AppData\\Local\\Android\\Sdk", CAPABILITIES_CONFIG = "D:\\workspace\\appProject\\app-auto-test\\.codex\\appium.capabilities.json", NO_UI = "true", NODE_OPTIONS = "--max-old-space-size=512" }
+args = ["appium-mcp@@1.27.1"]
+env = { ANDROID_HOME = "C:\\Users\\xujia\\AppData\\Local\\Android\\Sdk", CAPABILITIES_CONFIG = "D:\\workspace\\appProject\\app-auto-test\\.codex\\appium.capabilities.json" }

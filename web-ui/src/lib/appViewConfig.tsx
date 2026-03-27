@@ -1,3 +1,4 @@
+import { LoadingOutlined } from "@ant-design/icons";
 import { Button, Space, Tag } from "antd";
 import type { CSSProperties, ReactNode } from "react";
 import {
@@ -85,7 +86,24 @@ export function getDeviceTableColumns(
     { title: "设备状态", render: (_: unknown, device: Device) => formatDeviceStatus(device.status) },
     {
       title: "任务状态",
-      render: (_: unknown, device: Device) => formatRunStatus(deviceRuntimeMap[device.serial]?.status),
+      render: (_: unknown, device: Device): ReactNode => {
+        const status = (deviceRuntimeMap[device.serial]?.status || "").toLowerCase();
+        const color =
+          status === "success"
+            ? "green"
+            : status === "failed"
+              ? "red"
+              : status === "running"
+                ? "blue"
+                : status === "stopped"
+                  ? "orange"
+                  : "default";
+        return (
+          <Tag color={color} icon={status === "running" ? <LoadingOutlined spin /> : undefined}>
+            {formatRunStatus(status)}
+          </Tag>
+        );
+      },
     },
     { title: "品牌", render: (_: unknown, device: Device) => renderBrand(device.brand, 32) },
     { title: "型号", dataIndex: "model" },
@@ -122,7 +140,9 @@ export function getResultsTableColumns(): Array<Record<string, unknown>> {
         const warn = hasReportWarning(record);
         return (
           <Space size={6}>
-            <Tag color={color}>{formatRunStatus(record.status)}</Tag>
+            <Tag color={color} icon={status === "running" ? <LoadingOutlined spin /> : undefined}>
+              {formatRunStatus(record.status)}
+            </Tag>
             {warn && (
               <Tag color="gold" title={record.allure_output || "报告后处理存在告警"}>
                 报告告警

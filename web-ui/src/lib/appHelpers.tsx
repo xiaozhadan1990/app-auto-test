@@ -87,7 +87,27 @@ function normalizeKey(value?: string): string {
 function getBrandImageUrl(brand?: string): string | null {
   const key = normalizeKey(brand);
   if (!key) return null;
-  return phoneSvgMap[key] || null;
+  if (phoneSvgMap[key]) return phoneSvgMap[key];
+
+  const aliases: Array<[string, string]> = [
+    ["google", "google"],
+    ["samsung", "samsung"],
+    ["huawei", "huawei"],
+    ["xiaomi", "xiaomi"],
+    ["redmi", "xiaomi"],
+    ["oppo", "oppo"],
+    ["oneplus", "oneplus"],
+    ["vivo", "vivo"],
+    ["apple", "apple"],
+    ["iphone", "apple"],
+  ];
+
+  for (const [token, icon] of aliases) {
+    if (key.includes(token) && phoneSvgMap[icon]) {
+      return phoneSvgMap[icon];
+    }
+  }
+  return null;
 }
 
 export function renderBrand(brand?: string, imageHeight = 36): ReactNode {

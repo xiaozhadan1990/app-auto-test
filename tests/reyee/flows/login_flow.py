@@ -14,6 +14,8 @@ class ReyeeLoginFlow:
         if app_id:
             self.my_page.activate_app(app_id, settle_seconds=0)
         self.my_page.open()
+        if self.my_page.is_account_visible(account.username):
+            return
         self.my_page.open_login_entry()
         self.login_page.enter_phone(account.username)
         self.login_page.enter_password(account.password)
