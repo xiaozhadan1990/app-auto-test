@@ -86,6 +86,11 @@ APP_CONFIG: dict[str, dict[str, str]] = {
         "package_name": os.getenv("RUIJIECLOUD_APP_PACKAGE", "cn.com.ruijie.cloudapp"),
         "default_test_package": "tests/ruijieCloud",
     },
+    "reyee": {
+        "label": "Reyee",
+        "package_name": os.getenv("REEYEE_APP_PACKAGE", "cn.com.ruijie.ywl"),
+        "default_test_package": "tests/reyee",
+    },
 }
 
 _tasks_lock = threading.Lock()

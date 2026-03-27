@@ -54,7 +54,14 @@ export function fallbackPackageLabel(packageValue: string): string {
   const segments = normalized.split("/");
   const fileName = segments[segments.length - 1] || normalized;
   const appKey = (segments[segments.length - 2] || "").toLowerCase();
-  const appName = appKey === "lysora" ? "Lysora" : appKey === "ruijiecloud" ? "RuijieCloud" : "测试";
+  const appName =
+    appKey === "lysora"
+      ? "Lysora"
+      : appKey === "ruijiecloud"
+        ? "RuijieCloud"
+        : appKey === "reyee"
+          ? "Reyee"
+          : "测试";
   const stem = fileName.replace(/\.py$/i, "").replace(/^test_/i, "");
   const readable = stem.replace(/_/g, " ").trim() || fileName;
   return `${appName}-${readable}`;

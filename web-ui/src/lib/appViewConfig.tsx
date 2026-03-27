@@ -93,9 +93,9 @@ export function getDeviceTableColumns(
     {
       title: "应用版本",
       render: (_: unknown, device: Device) =>
-        `Lysora: ${(device.app_versions && device.app_versions.lysora) || "-"} / Ruijie: ${
+        `Lysora: ${(device.app_versions && device.app_versions.lysora) || "-"} / RuijieCloud: ${
           (device.app_versions && device.app_versions.ruijieCloud) || "-"
-        }`,
+        } / Reyee: ${(device.app_versions && device.app_versions.reyee) || "-"}`,
     },
   ];
 }

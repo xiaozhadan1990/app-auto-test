@@ -143,7 +143,7 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "full: full regression tests")
     config.addinivalue_line("markers", "lysora: Lysora test cases")
     config.addinivalue_line("markers", "ruijieCloud: RuijieCloud test cases")
-
+    config.addinivalue_line("markers", "reyee: Reyee test cases")
 
 def _parse_case_priority(item: pytest.Item) -> int:
     marker = item.get_closest_marker("case_priority")
@@ -247,6 +247,17 @@ def ruijiecloud_app_id(mobile_platform: str) -> str | None:
 
 
 @pytest.fixture(scope="session")
+def reyee_app_id(mobile_platform: str) -> str | None:
+    return _resolve_app_id(
+        android_env="REEYEE_APP_PACKAGE",
+        android_default="cn.com.ruijie.ywl",
+        ios_env="REEYEE_IOS_BUNDLE_ID",
+        ios_default=os.getenv("RUIJIECLOUD_IOS_BUNDLE_ID"),
+        platform_name=mobile_platform,
+    )
+
+
+@pytest.fixture(scope="session")
 def lysora_package(lysora_app_id: str) -> str:
     return lysora_app_id
 
@@ -254,6 +265,11 @@ def lysora_package(lysora_app_id: str) -> str:
 @pytest.fixture(scope="session")
 def ruijiecloud_package(ruijiecloud_app_id: str | None) -> str | None:
     return ruijiecloud_app_id
+
+
+@pytest.fixture(scope="session")
+def reyee_package(reyee_app_id: str | None) -> str | None:
+    return reyee_app_id
 
 
 @pytest.fixture(scope="session")
