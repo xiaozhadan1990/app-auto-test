@@ -6,451 +6,332 @@ This file is for coding agents working in this repository.
 
 Use it to understand:
 
-- what this project does
-- where the real entry points are
-- how to run and verify changes
-- what files usually need to change together
-- what constraints must not be broken
+- what this project is
+- which areas are still actively changing
+- how new mobile test cases should be added
+- which files usually change together
+- which stable areas should be avoided unless truly necessary
 
 ## Project Summary
 
-This repository is a mobile automation test runner with a desktop web UI.
+This repository is a mobile automation test project with a desktop web runner.
 
-Main capabilities:
+It includes:
 
-- run Appium + Pytest test suites
-- manage devices from a Flask backend
-- show execution status and task history
-- generate HTML test reports
-- optionally expose remote control through WebSocket
-- support Android today and keep room for future iOS test support
-
-This is not just a test folder and not just a frontend app. It is a combined system:
-
-- Python backend
-- React frontend
-- pytest/Appium execution pipeline
-- report storage and rendering
-
-## First Files To Read
-
-When starting work, read these files first:
-
-1. `desktop_web_app.py`
-2. `desktop_app/services_container.py`
-3. `desktop_app/api.py`
-4. `desktop_app/task_service.py`
-5. `web-ui/src/App.tsx`
-
-That reading order usually reveals the real control flow quickly.
-
-## Key Entry Points
-
-### Backend entry
-
-- `desktop_web_app.py`
-
-Responsibilities:
-
-- load local `.env`
-- compute runtime/resource paths
-- create the service container
-- create the Flask app
-- initialize runtime DB
-- optionally start remote WebSocket client
-- launch the desktop web server, preferring `waitress` when available
-
-### Backend composition root
-
-- `desktop_app/services_container.py`
-
-Responsibilities:
-
-- wire all backend services together
-- expose unified methods to API routes
-- centralize path resolution and runtime dependencies
-
-Avoid putting real business logic into `desktop_web_app.py` when extending features.
-
-### API layer
-
-- `desktop_app/api.py`
-
-Responsibilities:
-
-- define Flask routes
-- parse request payloads and query params
-- call service container methods
-- return JSON or files
-
-Keep route handlers thin.
-
-### Frontend entry
-
-- `web-ui/src/App.tsx`
+- Appium + Pytest test cases under `tests/`
+- shared pytest fixtures and report hooks in `conftest.py`
+- a Flask backend under `desktop_app/`
+- a React frontend under `web-ui/`
+- generated runtime outputs under `reports/`
 
 Current reality:
 
-- a large amount of UI logic lives in this file
-- device management, task execution, history, and report UI are all connected here
+- daily development is now centered on `tests/`
+- `desktop_app/`, `web-ui/`, `ui/`, and desktop startup code are mostly stable
+- agents should assume non-test directories do not need changes unless the task clearly requires them
 
-Before changing frontend behavior, inspect the existing API call shape in this file.
+## Default Working Assumption
 
-## Major Backend Modules
+For most requests in this repo, assume the correct change surface is:
 
-- `desktop_app/task_service.py`
-  - starts pytest subprocesses
-  - tracks in-memory task state
-  - prevents concurrent runs on the same device
-  - watches task output
-  - updates DB status and report state
+1. `tests/`
+2. `conftest.py`
+3. possibly `pytest.ini`
 
-- `desktop_app/report_service.py`
-  - resolves report paths
-  - saves task report data into DB
-  - reads report summaries and case details
-  - resolves report asset paths
+Only expand beyond that if one of these is true:
 
-- `desktop_app/db_service.py`
-  - owns SQLite access
-  - stores device runtime status
-  - stores task history
-  - stores report summary and case rows
+- the user explicitly asks for backend or frontend changes
+- a test cannot be implemented without new API or runner support
+- an existing backend/frontend contract is already broken
 
-- `desktop_app/device_service.py`
-  - queries devices through `adb`
-  - fetches device metadata and app versions
+Do not proactively refactor stable app code just because it looks improvable.
 
-- `desktop_app/package_service.py`
-  - lists test packages for each app
-  - builds display labels for frontend selection
+## First Files To Read
 
-- `desktop_app/remote_ws_service.py`
-  - optional remote command channel
-  - status, logs, command dispatch, heartbeat
+When the task is about writing or updating tests, read these first:
 
-## Frontend Stack
+1. `conftest.py`
+2. `pytest.ini`
+3. the relevant files under `tests/<app_name>/`
+4. `tests/templates/README.md`
+5. matching files in `tests/templates/` when creating a new case
 
-- React 18
-- TypeScript
-- Vite
-- Ant Design
+Only read backend/frontend entry points if the task actually crosses out of the test layer.
 
-Frontend source:
+## Active Test Structure
 
+Primary working area:
+
+- `tests/common/`
+  - shared base page, platform helpers, reporting helpers, common models
+
+- `tests/lysora/`
+  - Lysora test cases, flows, pages, test data
+
+- `tests/reyee/`
+  - Reyee test cases, flows, pages, test data
+
+- `tests/ruijieCloud/`
+  - RuijieCloud test cases, flows, pages, test data
+
+- `tests/templates/`
+  - reference templates for adding new cases
+
+Typical per-app structure:
+
+```text
+tests/<app>/
+  pages/
+  flows/
+  data.py
+  test_*.py
+```
+
+Platform split already exists in several apps:
+
+- `pages/android/`
+- `pages/ios/`
+- top-level page wrappers or factories that hide platform branching
+
+## Recommended Test Layering
+
+Prefer this responsibility split:
+
+- `pages/`
+  - locators and direct page interactions
+
+- `flows/`
+  - multi-step business actions across one or more pages
+
+- `data.py` or app-specific data modules
+  - accounts, seed data, reusable inputs
+
+- `test_*.py`
+  - only scenario orchestration, assertions, and markers
+
+Keep test files thin. If a test starts accumulating UI detail, move that detail into a page or flow object.
+
+## Existing Pytest Conventions
+
+Pytest root behavior:
+
+- `pytest.ini` sets `testpaths = tests`
+- tests are collected from `tests/`
+- default run uses verbose output
+
+Registered markers include:
+
+- `smoke`
+- `full`
+- `lysora`
+- `ruijieCloud`
+- `reyee`
+- `case_name(name)`
+- `case_priority(value)`
+
+Important collection behavior from `conftest.py`:
+
+- tests are sorted by `case_priority`
+- missing priorities fall back to a default value
+- report snapshots are continuously written during the session
+- screenshots and videos are attached through the shared reporting flow
+
+When adding a new case, include an explicit `case_priority` unless there is a good reason not to.
+
+## Fixtures And Shared Capabilities
+
+`conftest.py` is a core part of the test platform. Reuse it before inventing local setup.
+
+Important shared fixtures and helpers include:
+
+- `driver`
+- `mobile_platform`
+- `appium_server_url`
+- `appium_options`
+- `lysora_app_id`
+- `ruijiecloud_app_id`
+- `reyee_app_id`
+- account fixtures for supported apps
+
+Prefer:
+
+- shared fixtures from `conftest.py`
+- shared helpers from `tests/common/`
+- platform-neutral app id fixtures
+
+Avoid:
+
+- hardcoding package names directly inside tests
+- duplicating driver setup inside test modules
+- implementing one-off reporting logic inside individual tests
+
+## Safe Change Rules
+
+For normal work, change the smallest surface that solves the problem.
+
+Usually this means:
+
+- add or edit a page object
+- add or edit a flow
+- update test data
+- add or edit a `test_*.py`
+
+Before touching stable directories such as `desktop_app/` or `web-ui/`, verify that the request truly needs it.
+
+## File Coupling Rules
+
+If you change a test file:
+
+- inspect the related `flows/`
+- inspect the related `pages/`
+- inspect the relevant `data.py`
+
+If you change a page object:
+
+- inspect the matching flow files
+- inspect tests that import that page
+- preserve platform abstraction if Android/iOS split already exists
+
+If you change `conftest.py`:
+
+- inspect `pytest.ini`
+- inspect `tests/common/reporting.py`
+- inspect representative tests from affected apps
+- be extra careful, because this file impacts the whole suite
+
+If you change markers, suite behavior, or collection rules:
+
+- inspect `pytest.ini`
+- inspect `conftest.py`
+- inspect backend code only if the desktop runner depends on that marker behavior
+
+If you think you need to change backend/frontend code:
+
+- inspect `desktop_app/api.py`
+- inspect `desktop_app/task_service.py`
+- inspect `desktop_app/services_container.py`
+- inspect `web-ui/src/App.tsx`
+
+But treat that as an exception path, not the default path.
+
+## Stable Areas
+
+These areas are important, but usually not the place to start:
+
+- `desktop_web_app.py`
+- `desktop_app/`
 - `web-ui/`
-
-Built frontend output served by Flask:
-
 - `ui/`
+- build/packaging scripts
 
-When frontend assets change, keep in mind the runtime app serves static files from the built `ui/` directory, not from `web-ui/src/`.
+Assume they are stable unless the user explicitly asks for changes there.
 
-## Common Commands
+Do not make opportunistic cleanup changes in these directories while working on test cases.
 
-### Start backend
+## Run Commands
 
-```powershell
-uv run python .\desktop_web_app.py
-```
-
-Current behavior:
-
-- backend startup prefers `waitress`
-- if `waitress` is unavailable locally, it falls back to the Flask dev server
-
-### Start frontend dev server
-
-```powershell
-cd .\web-ui
-yarn dev
-```
-
-### Start both
-
-```powershell
-.\start_dev_all.ps1
-```
-
-### Run tests directly
+Run the whole suite:
 
 ```powershell
 uv run pytest tests/
+```
+
+Run by marker:
+
+```powershell
 uv run pytest tests/ -m smoke
 uv run pytest tests/ -m "lysora and smoke"
+uv run pytest tests/ -m reyee
 uv run pytest tests/ -m ruijieCloud
 ```
 
-### Run tests with helper script
+Run with helper script:
 
 ```powershell
 .\run_tests_and_allure.ps1 -Suite smoke
 .\run_tests_and_allure.ps1 -Suite full -Component lysora -OpenReport
 ```
 
-Current behavior:
+Start backend manually when needed:
 
-- helper script writes Allure raw results to `reports/allure-results/`
-- screenshots and videos are attached as Allure attachments instead of relying on local `file:///...` paths
+```powershell
+uv run python .\desktop_web_app.py
+```
 
-### Frontend build
+Start frontend dev server only if the task really needs UI work:
 
 ```powershell
 cd .\web-ui
-yarn build
-```
-
-### Package desktop app
-
-```powershell
-uv sync
-.\build_web_ui.bat
+yarn dev
 ```
 
 ## Environment Assumptions
 
 Expected local dependencies:
 
-- Python / `uv`
+- Python and `uv`
 - Node.js and yarn
 - Appium server
-- adb
+- `adb`
 - Android device or emulator
 
-Optional / situational dependencies:
-
-- `waitress` for preferred backend serving
-- `allure` CLI for generating/opening Allure HTML reports
-- iOS Appium/XCUITest stack when iOS test support is added
-
-Important env vars from `.env`:
+Common environment variables:
 
 - `APPIUM_SERVER_URL`
 - `APPIUM_PLATFORM_NAME`
 - `APPIUM_UDID`
-- `DESKTOP_WEB_HOST`
-- `DESKTOP_WEB_PORT`
-- `DESKTOP_WEB_AUTO_PORT_FALLBACK`
 - `LYSORA_APP_PACKAGE`
 - `RUIJIECLOUD_APP_PACKAGE`
+- `REEYEE_APP_PACKAGE`
 - `LYSORA_IOS_BUNDLE_ID`
 - `RUIJIECLOUD_IOS_BUNDLE_ID`
-- `REMOTE_WS_ENABLED`
-- `REMOTE_WS_URL`
+- `REEYEE_IOS_BUNDLE_ID`
+
+If platform behavior is involved, prefer using fixtures and helpers rather than reading env vars directly inside each test.
 
 ## Runtime Outputs
 
+Common output locations:
+
 - `reports/runtime_state.db`
-  - SQLite runtime database
-
 - `reports/task-logs/`
-  - per-task log files
-
 - `reports/task-reports/<task_id>/`
-  - per-task `test_results.json`
-  - per-task `test_report.html`
-
 - `reports/test_results.json`
-  - latest copied task result
-
 - `reports/test_report.html`
-  - latest copied report
-
 - `reports/allure-results/`
-  - raw Allure results and binary attachments
-
 - `reports/allure-html/`
-  - generated Allure HTML report
 
-## Core Execution Model
+Do not commit generated runtime artifacts unless the user explicitly asks for that.
 
-Typical flow for running tests:
+## Test Authoring Guidance
 
-1. frontend calls `POST /api/run_tests`
-2. route delegates to `services_container.run_tests()`
-3. `task_service.run_tests()` validates payload and Appium availability
-4. backend starts a pytest subprocess
-5. in-memory task state is updated
-6. SQLite task history and device status are updated
-7. watcher thread captures logs and final exit code
-8. report post-processing runs
-9. report data is saved into DB
-10. frontend polls task status and report data endpoints
+When adding a new test case, prefer this sequence:
 
-If you change task execution, inspect `desktop_app/task_service.py` first.
+1. find the closest existing case in the same app
+2. reuse or extend an existing page object if possible
+3. add a flow when the scenario spans multiple steps
+4. keep data in `data.py` or a nearby app data module
+5. keep the final test file concise
+6. add `case_name` and `case_priority`
+7. run the narrowest possible pytest command
 
-## API Surfaces That Commonly Matter
-
-Frequently used endpoints:
-
-- `POST /api/list_devices`
-- `GET /api/get_app_options`
-- `POST /api/list_test_packages`
-- `POST /api/run_tests`
-- `GET /api/task_status/<task_id>`
-- `GET /api/task_history`
-- `POST /api/stop_task`
-- `GET /api/task_report/<task_id>`
-- `GET /api/task_report_data/<task_id>`
-- `GET /api/device_status/<device_serial>`
-- `GET /api/appium_ready`
-
-## File Coupling Rules
-
-When changing one of these areas, also inspect the linked files.
-
-### If you change API payloads or response fields
-
-Also inspect:
-
-- `desktop_app/api.py`
-- `desktop_app/services_container.py`
-- relevant backend service file
-- `web-ui/src/App.tsx`
-
-### If you change task execution behavior
-
-Also inspect:
-
-- `desktop_app/task_service.py`
-- `desktop_app/services_container.py`
-- `conftest.py`
-- any report generation code that depends on task output files
-
-### If you change report structure or asset URLs
-
-Also inspect:
-
-- `desktop_app/report_service.py`
-- `desktop_app/db_service.py`
-- `web-ui/src/App.tsx`
-
-### If you change device status or device locking behavior
-
-Also inspect:
-
-- `desktop_app/task_service.py`
-- `desktop_app/db_service.py`
-- `desktop_app/device_service.py`
-- `web-ui/src/App.tsx`
-
-### If you change path handling
-
-Also inspect:
-
-- `desktop_web_app.py`
-- `desktop_app/services_container.py`
-- report asset resolution logic
-- any code that assumes source mode only
-
-## Important Constraints
-
-### Keep the entry point light
-
-Do not move business logic into `desktop_web_app.py` unless absolutely necessary.
-
-Prefer:
-
-- service module changes
-- service container wiring
-- thin API routes
-
-### Respect source mode and packaged mode
-
-The app supports both:
-
-- source execution
-- packaged execution through PyInstaller
-
-Path changes must consider:
-
-- `RESOURCE_ROOT`
-- `RUNTIME_ROOT`
-- generated report locations
-- built frontend asset locations
-
-Do not assume only local source mode.
-
-### Keep state consistent
-
-Task state exists in more than one place:
-
-- in-memory runtime state
-- SQLite runtime state
-- frontend polling/rendered state
-
-When changing task lifecycle behavior, make sure all three stay aligned.
-
-### One device, one running task
-
-Current behavior prevents concurrent execution on the same device.
-
-Do not break this by accident when touching task scheduling logic.
-
-### Keep routes thin
-
-`desktop_app/api.py` should stay close to transport logic, not business orchestration.
-
-## Testing Conventions
-
-Tests currently live under:
-
-- `tests/lysora/`
-- `tests/ruijieCloud/`
-
-Page implementations are gradually being organized with platform-specific layers, for example:
-
-- `pages/android/`
-- `pages/ios/`
-- top-level `pages/*.py` wrappers that choose the platform implementation
-
-Common markers:
-
-- `smoke`
-- `full`
-- `lysora`
-- `ruijieCloud`
-
-The backend builds pytest `-m` expressions from `suite` and `app_key`.
-
-If you introduce new suite concepts or filter behavior, update both backend and frontend assumptions.
-
-## Safe Change Strategy
-
-For most tasks, use this order:
-
-1. trace current control flow
-2. change the smallest backend or frontend surface needed
-3. verify linked files for schema drift
-4. run the narrowest useful validation
-5. only then consider cleanup or refactor
-
-Prefer incremental changes over broad rewrites.
+For new scenarios, the templates under `tests/templates/` are the safest starting point.
 
 ## What Not To Do
 
-- do not assume this is a pure frontend project
-- do not assume this is a pure pytest project
-- do not hardcode paths for source mode only
-- do not change API fields without checking the frontend
-- do not change task status semantics without checking DB and UI behavior
-- do not add unrelated refactors while fixing a small issue
-
-## Quick Troubleshooting Hints
-
-- no devices in UI: check `adb devices` and `/api/list_devices`
-- cannot start tasks: check `/api/appium_ready`
-- report missing: check `reports/task-reports/<task_id>/`
-- history exists but report details are empty: inspect report save flow
-- report image/video missing: inspect `/api/report_asset`, remote upload status, and `reports/remote-ws.log`
-- Allure video cannot open: make sure tests were rerun after the binary-attachment change and `allure-pytest` is installed
-- packaged app path bugs: inspect runtime/resource path handling first
+- do not assume backend or frontend changes are needed for ordinary test work
+- do not hardcode Android package names inside tests when fixtures already exist
+- do not duplicate driver setup in test modules
+- do not put heavy UI interaction details directly in `test_*.py`
+- do not refactor stable app code while only trying to add a test
+- do not change global fixtures casually
 
 ## Default Agent Working Style For This Repo
 
-- read before editing
-- prefer small, local changes
-- verify assumptions against real files
-- keep backend responsibilities separated
-- keep frontend and backend contracts in sync
-- mention risks clearly when you cannot fully verify behavior
+- start from `tests/`, not from app code
+- prefer small and local edits
+- reuse `conftest.py` fixtures and `tests/common/` helpers
+- follow the existing page/flow/data/test layering
+- treat `desktop_app/` and `web-ui/` as stable unless proven otherwise
+- verify the narrowest useful slice after making changes
+- clearly call out risks when a change touches shared fixtures or cross-layer behavior
