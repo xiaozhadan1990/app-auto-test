@@ -4,4 +4,4 @@ disabled = false
 startup_timeout_sec = 60
 type = "stdio"
 args = ["appium-mcp@@1.27.1"]
-env = { ANDROID_HOME = "C:\\Users\\xujia\\AppData\\Local\\Android\\Sdk", CAPABILITIES_CONFIG = "D:\\workspace\\appProject\\app-auto-test\\.codex\\appium.capabilities.json" }
+env = { ANDROID_HOME = "/Users/ruijie/Library/Android/sdk", CAPABILITIES_CONFIG = "/Users/ruijie/Documents/workspace/pyProject/app-auto-test/.codex/appium.capabilities.json" }
