@@ -26,6 +26,7 @@ def _run_command(
         result = subprocess.run(
             args,
             cwd=str(cwd),
+            check=False,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -37,7 +38,8 @@ def _run_command(
         return 127, f"Command not found: {args[0]}\n{exc}"
     except subprocess.TimeoutExpired:
         return 124, f"Command timed out after {timeout}s"
-    combined = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+    combined = (result.stdout or "") + \
+        ("\n" + result.stderr if result.stderr else "")
     return result.returncode, combined.strip()
 
 
@@ -71,7 +73,8 @@ def _get_device_props(adb_bin: str, serial: str, cwd: Path) -> dict[str, str]:
 
 def _get_app_version(adb_bin: str, serial: str, package_name: str, cwd: Path) -> str:
     """通过 dumpsys package 读取应用版本号，未安装时返回提示文案。"""
-    code, out = _adb(adb_bin, serial, ["dumpsys", "package", package_name], cwd=cwd, timeout=40)
+    code, out = _adb(adb_bin, serial, [
+                     "dumpsys", "package", package_name], cwd=cwd, timeout=40)
     if code != 0:
         return "未安装"
     m = re.search(r"versionName=([^\s]+)", out)
@@ -80,7 +83,10 @@ def _get_app_version(adb_bin: str, serial: str, package_name: str, cwd: Path) ->
 
 def _app_config_signature(app_config: Mapping[str, Mapping[str, str]]) -> tuple[tuple[str, str], ...]:
     return tuple(
-        sorted((str(key), str(value.get("package_name") or "")) for key, value in app_config.items())
+        sorted(
+            (str(key), str(value.get("package_name") or ""))
+            for key, value in app_config.items()
+        )
     )
 
 
@@ -164,7 +170,8 @@ def list_devices(
     project_root: Path,
 ) -> dict[str, Any]:
     """列举 ADB 设备并补充品牌、型号、系统及应用版本信息。"""
-    code, out = _run_command([adb_bin, "devices"], cwd=project_root, timeout=20)
+    code, out = _run_command([adb_bin, "devices"],
+                             cwd=project_root, timeout=20)
     if code != 0:
         return {"ok": False, "devices": [], "error": out or "无法执行 adb devices"}
 
@@ -189,4 +196,3 @@ def list_devices(
             ordered[future_map[future]] = future.result()
     devices = [item for item in ordered if item is not None]
     return {"ok": True, "devices": devices}
-

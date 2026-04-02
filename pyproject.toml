@@ -33,3 +33,44 @@ markers = [
     "case_name(name): 自定义报告中的用例展示名",
     "case_priority(value): 用例执行优先级，值越小越先执行",
 ]
+
+[tool.pylint.main]
+ignore-paths = [
+    "^\\.venv/.*",
+    "^\\.uv-cache/.*",
+    "^build/.*",
+    "^dist/.*",
+    "^ui/.*",
+    "^reports/.*",
+]
+
+[tool.pylint.format]
+max-line-length = 200
+
+[tool.pylint.messages_control]
+disable = [
+    "missing-module-docstring",
+    "missing-class-docstring",
+    "missing-function-docstring",
+    "broad-exception-caught",
+    "redefined-outer-name",
+    "unused-argument",
+    "too-many-arguments",
+    "too-many-positional-arguments",
+    "too-many-locals",
+    "too-many-statements",
+    "too-many-branches",
+    "too-many-return-statements",
+    "too-many-instance-attributes",
+    "too-many-public-methods",
+    "too-few-public-methods",
+    "duplicate-code",
+    "invalid-name",
+    "import-outside-toplevel",
+    "mixed-line-endings",
+    "trailing-newlines",
+    "subprocess-run-check",
+    "consider-using-with",
+    "no-member",
+    "abstract-method",
+]

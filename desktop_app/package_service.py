@@ -18,12 +18,12 @@ def _extract_case_names(test_file: Path) -> list[str]:
     """从测试文件中提取 @pytest.mark.case_name("...") 文案。"""
     try:
         source = test_file.read_text(encoding="utf-8")
-    except Exception:
+    except (OSError, UnicodeError):
         return []
 
     try:
         tree = ast.parse(source)
-    except Exception:
+    except (SyntaxError, ValueError):
         return []
 
     case_names: list[str] = []
@@ -58,12 +58,12 @@ def _extract_case_priorities(test_file: Path) -> list[int]:
     """从测试文件中提取 @pytest.mark.case_priority(...) 优先级。"""
     try:
         source = test_file.read_text(encoding="utf-8")
-    except Exception:
+    except (OSError, UnicodeError):
         return []
 
     try:
         tree = ast.parse(source)
-    except Exception:
+    except (SyntaxError, ValueError):
         return []
 
     priorities: list[int] = []
