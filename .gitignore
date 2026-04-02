@@ -44,4 +44,5 @@ node_modules
 rjenv
 uv.lock
 .claude/
-.codex/
+.codex
+package-lock.json
