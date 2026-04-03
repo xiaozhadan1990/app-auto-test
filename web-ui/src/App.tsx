@@ -68,7 +68,7 @@ function App() {
   const resultsActions = useResultsActions({
     refreshTaskHistory: taskMonitor.refreshTaskHistory,
     refreshCurrentTaskStatus: taskMonitor.refreshCurrentTaskStatus,
-    openReport: taskActions.openReport,
+    setActiveTab,
     setCurrentTaskId: taskMonitor.setCurrentTaskId,
     setReportTaskId: reportState.setReportTaskId,
   });
@@ -84,7 +84,7 @@ function App() {
   const reportCaseStatusOptions = getReportCaseStatusOptions();
   const tabItems = getTabItems();
   const deviceTableColumns = getDeviceTableColumns(runnerState.deviceRuntimeMap);
-  const resultsTableColumns = getResultsTableColumns();
+  const resultsTableColumns = getResultsTableColumns(resultsActions.handleViewTaskReport);
   const reportCaseColumns = getReportCaseColumns();
   const deviceSelectOptions = getDeviceSelectOptions(runnerState.devices);
 
@@ -173,7 +173,6 @@ function App() {
             onHistoryStatusChange={taskMonitor.setHistoryStatusFilter}
             onRefreshHistory={resultsActions.handleRefreshHistory}
             onRefreshTaskStatus={resultsActions.handleRefreshTaskStatus}
-            onOpenReport={resultsActions.handleOpenLatestReport}
             onSelectTask={resultsActions.handleSelectTask}
           />
         )}
@@ -193,7 +192,6 @@ function App() {
             onReportTaskChange={reportState.setReportTaskId}
             onReportCaseStatusChange={reportActions.handleReportCaseStatusChange}
             onRefreshReport={reportActions.handleRefreshReport}
-            onOpenHtmlReport={reportActions.handleOpenHtmlReport}
           />
         )}
       </Suspense>

@@ -23,18 +23,9 @@ function useReportActions({
     void refreshTaskReportData();
   };
 
-  const handleOpenHtmlReport = () => {
-    if (!selectedReportTask?.has_report) return;
-    const url =
-      selectedReportTask.report_url ||
-      `/api/task_report/${encodeURIComponent(selectedReportTask.task_id)}`;
-    window.open(url, "_blank");
-  };
-
   return {
     handleReportCaseStatusChange,
     handleRefreshReport,
-    handleOpenHtmlReport,
   };
 }
 

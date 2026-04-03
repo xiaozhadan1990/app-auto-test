@@ -153,6 +153,18 @@ def airtest_report_asset_root() -> Path | None:
     return _airtest_report_asset_root()
 
 
+@lru_cache(maxsize=1)
+def _airtest_case_asset_root() -> Path | None:
+    try:
+        from .airtest_service import airtest_case_root
+    except Exception:
+        return None
+    try:
+        return airtest_case_root().resolve()
+    except Exception:
+        return None
+
+
 def resolve_report_asset_path(
     rel_path: str,
     *,
@@ -171,6 +183,9 @@ def resolve_report_asset_path(
     airtest_asset_root = _airtest_report_asset_root()
     if airtest_asset_root is not None:
         allowed_roots.append(airtest_asset_root)
+    airtest_case_root = _airtest_case_asset_root()
+    if airtest_case_root is not None:
+        allowed_roots.append(airtest_case_root)
 
     candidate_path = Path(value).expanduser()
     if candidate_path.is_absolute():
@@ -202,6 +217,7 @@ def _rewrite_report_asset_reference(raw_value: str, *, base_dir: Path) -> str | 
         return None
 
     airtest_asset_root = _airtest_report_asset_root()
+    airtest_case_root = _airtest_case_asset_root()
     candidate = Path(value).expanduser()
 
     if candidate.is_absolute():
@@ -217,6 +233,13 @@ def _rewrite_report_asset_reference(raw_value: str, *, base_dir: Path) -> str | 
                     if value.endswith("/"):
                         resolved_value = resolved_value.rstrip("/") + "/"
                     return report_asset_url(resolved_value)
+            except Exception:
+                pass
+
+        if airtest_case_root is not None:
+            try:
+                if resolved_candidate.is_relative_to(airtest_case_root):
+                    return report_asset_url(str(resolved_candidate))
             except Exception:
                 pass
 

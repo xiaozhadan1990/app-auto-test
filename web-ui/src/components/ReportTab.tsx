@@ -27,7 +27,6 @@ type ReportTabProps = {
   onReportTaskChange: (value: string) => void;
   onReportCaseStatusChange: (value: string) => void;
   onRefreshReport: () => void;
-  onOpenHtmlReport: () => void;
 };
 
 function ReportTab({
@@ -44,7 +43,6 @@ function ReportTab({
   onReportTaskChange,
   onReportCaseStatusChange,
   onRefreshReport,
-  onOpenHtmlReport,
 }: ReportTabProps) {
   return (
     <Card
@@ -65,9 +63,6 @@ function ReportTab({
             options={reportCaseStatusOptions}
           />
           <Button onClick={onRefreshReport}>刷新报告</Button>
-          <Button disabled={!selectedReportTask?.has_report} onClick={onOpenHtmlReport}>
-            打开 HTML 报告
-          </Button>
         </Space>
       }
     >
@@ -148,30 +143,7 @@ function ReportTab({
                 >
                   查看 Airtest 报告
                 </Button>
-                <Button
-                  size="small"
-                  disabled={!record.screenshot_url}
-                  onClick={() => record.screenshot_url && window.open(record.screenshot_url, "_blank")}
-                >
-                  查看截图
-                </Button>
-                <Button
-                  size="small"
-                  disabled={!record.video_url}
-                  onClick={() => record.video_url && window.open(record.video_url, "_blank")}
-                >
-                  查看视频
-                </Button>
               </Space>
-              {record.screenshot_url && (
-                <div style={{ marginTop: 8 }}>
-                  <img
-                    src={record.screenshot_url}
-                    alt={record.name || "screenshot"}
-                    style={{ maxHeight: 240, maxWidth: "100%", border: "1px solid #ddd", borderRadius: 6 }}
-                  />
-                </div>
-              )}
             </div>
           ),
         }}

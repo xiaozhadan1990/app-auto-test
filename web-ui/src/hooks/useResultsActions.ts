@@ -4,7 +4,7 @@ import type { TaskHistoryItem } from "../types/app";
 type UseResultsActionsOptions = {
   refreshTaskHistory: () => Promise<void>;
   refreshCurrentTaskStatus: () => Promise<void>;
-  openReport: () => Promise<void>;
+  setActiveTab: Dispatch<SetStateAction<string>>;
   setCurrentTaskId: Dispatch<SetStateAction<string | undefined>>;
   setReportTaskId: Dispatch<SetStateAction<string | undefined>>;
 };
@@ -12,7 +12,7 @@ type UseResultsActionsOptions = {
 function useResultsActions({
   refreshTaskHistory,
   refreshCurrentTaskStatus,
-  openReport,
+  setActiveTab,
   setCurrentTaskId,
   setReportTaskId,
 }: UseResultsActionsOptions) {
@@ -24,10 +24,6 @@ function useResultsActions({
     void refreshCurrentTaskStatus();
   };
 
-  const handleOpenLatestReport = () => {
-    void openReport();
-  };
-
   const handleSelectTask = (record: TaskHistoryItem) => {
     setCurrentTaskId(record.task_id);
     if (record.has_report_data) {
@@ -35,11 +31,18 @@ function useResultsActions({
     }
   };
 
+  const handleViewTaskReport = (record: TaskHistoryItem) => {
+    setCurrentTaskId(record.task_id);
+    if (!record.has_report_data) return;
+    setReportTaskId(record.task_id);
+    setActiveTab("report");
+  };
+
   return {
     handleRefreshHistory,
     handleRefreshTaskStatus,
-    handleOpenLatestReport,
     handleSelectTask,
+    handleViewTaskReport,
   };
 }
 

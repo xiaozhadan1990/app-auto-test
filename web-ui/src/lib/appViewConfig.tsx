@@ -118,7 +118,9 @@ export function getDeviceTableColumns(
   ];
 }
 
-export function getResultsTableColumns(): Array<Record<string, unknown>> {
+export function getResultsTableColumns(
+  onViewReport: (record: TaskHistoryItem) => void
+): Array<Record<string, unknown>> {
   return [
     { title: "任务 ID", dataIndex: "task_id", width: 130 },
     { title: "设备", dataIndex: "device_serial", width: 140 },
@@ -171,12 +173,11 @@ export function getResultsTableColumns(): Array<Record<string, unknown>> {
         <Space size={6}>
           <Button
             size="small"
-            disabled={!record.has_report}
+            disabled={!record.has_report_data}
             onClick={(event) => {
               event.stopPropagation();
-              if (!record.has_report) return;
-              const url = record.report_url || `/api/task_report/${encodeURIComponent(record.task_id)}`;
-              window.open(url, "_blank");
+              if (!record.has_report_data) return;
+              onViewReport(record);
             }}
           >
             查看报告
