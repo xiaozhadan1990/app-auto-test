@@ -46,13 +46,17 @@ def register_routes(app: Flask, deps: ApiDeps) -> None:
 
     @app.get("/api/get_app_options")
     def api_get_app_options() -> Any:
-        apps = [{"key": k, "label": v["label"]} for k, v in deps.app_config.items()]
+        apps = [
+            {"key": k, "label": v["label"]}
+            for k, v in deps.app_config.items()
+            if str(v.get("hidden") or "").lower() not in {"1", "true", "yes"}
+        ]
         return jsonify(apps)
 
     @app.post("/api/list_test_packages")
     def api_list_test_packages() -> Any:
         payload = request.get_json(silent=True) or {}
-        app_key = payload.get("app_key") or "lysora"
+        app_key = payload.get("app_key") or "airtest"
         device_platform = (payload.get("device_platform") or "").strip().lower() or None
         packages = deps.list_test_packages(app_key, device_platform)
         return jsonify(

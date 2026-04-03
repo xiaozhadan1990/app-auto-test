@@ -82,6 +82,28 @@ APP_CONFIG: dict[str, dict[str, str]] = {
         "package_name": "",
         "ios_bundle_id": "",
         "default_test_package": str(airtest_case_root()),
+        "hidden": "false",
+    },
+    "lysora": {
+        "label": "Lysora",
+        "package_name": os.getenv("LYSORA_APP_PACKAGE", "com.lysora.lyapp"),
+        "ios_bundle_id": os.getenv("LYSORA_IOS_BUNDLE_ID", os.getenv("LYSORA_APP_PACKAGE", "")),
+        "default_test_package": str(airtest_case_root()),
+        "hidden": "true",
+    },
+    "ruijieCloud": {
+        "label": "RuijieCloud",
+        "package_name": os.getenv("RUIJIECLOUD_APP_PACKAGE", "cn.com.ruijie.cloudapp"),
+        "ios_bundle_id": os.getenv("RUIJIECLOUD_IOS_BUNDLE_ID", os.getenv("RUIJIECLOUD_APP_PACKAGE", "")),
+        "default_test_package": str(airtest_case_root()),
+        "hidden": "true",
+    },
+    "reyee": {
+        "label": "Reyee",
+        "package_name": os.getenv("REEYEE_APP_PACKAGE", "cn.com.ruijie.ywl"),
+        "ios_bundle_id": os.getenv("REEYEE_IOS_BUNDLE_ID", os.getenv("REEYEE_APP_PACKAGE", "")),
+        "default_test_package": str(airtest_case_root()),
+        "hidden": "true",
     },
 }
 

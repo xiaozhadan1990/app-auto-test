@@ -37,7 +37,7 @@ app-auto-test/
 - `uv`
 - Node.js
 - yarn
-- airtest
+- airtest 命令行工具
 - adb
 - Android 设备或模拟器
 
@@ -138,7 +138,7 @@ yarn dev
 /Users/ruijie/Documents/workspace/airProject/海外用例_wln
 ```
 
-如果你已经在本机装好了 `airtest` 命令，可以直接使用项目内脚本入口：
+如果你已经在本机单独装好了 `airtest` 命令行工具，可以直接使用项目内脚本入口：
 
 ```powershell
 uv run python .\scripts\run_airtest.py --platform android --device emulator-5554 --list

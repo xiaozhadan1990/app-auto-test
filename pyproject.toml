@@ -5,7 +5,6 @@ description = "Mobile automation test runner with Flask desktop web UI."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "airtest",
     "Flask",
     "waitress",
     "websocket-client",
