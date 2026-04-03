@@ -116,6 +116,7 @@ def list_test_packages(
     app_key: str,
     app_config: Mapping[str, Mapping[str, str]],
     project_root: Path,
+    device_platform: str | None = None,
 ) -> list[dict[str, str | int]]:
     """根据应用键返回可执行测试包列表（value 用于执行，label 用于中文显示）。"""
     default_pkg = app_config.get(app_key, {}).get("default_test_package", "tests")
@@ -146,7 +147,15 @@ def list_test_packages(
         )
     )
 
+    normalized_platform = (device_platform or "").strip().lower()
+    if normalized_platform not in {"android", "ios"}:
+        normalized_platform = ""
+
     for file_path in files:
+        if normalized_platform:
+            support = _detect_platform_support(file_path)
+            if normalized_platform not in support:
+                continue
         rel_path = file_path.relative_to(project_root).as_posix()
         label, tooltip, priority = _resolve_package_display(rel_path, file_path)
         package_item: dict[str, str | int] = {"value": rel_path, "label": label, "tooltip": tooltip}
@@ -154,3 +163,21 @@ def list_test_packages(
             package_item["priority"] = priority
         packages.append(package_item)
     return packages
+
+
+def _detect_platform_support(test_file: Path) -> set[str]:
+    """基于测试文件内容做轻量平台识别，用于前端候选用例过滤。"""
+    try:
+        source = test_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return {"android", "ios"}
+
+    lowered = source.lower()
+    has_android_hint = "pages.android" in lowered or 'mobile_platform != "ios"' in lowered
+    has_ios_hint = "pages.ios" in lowered or 'mobile_platform != "android"' in lowered
+
+    if has_android_hint and not has_ios_hint:
+        return {"android"}
+    if has_ios_hint and not has_android_hint:
+        return {"ios"}
+    return {"android", "ios"}

@@ -14,7 +14,7 @@ class ApiDeps:
     remote_ws_log_file: Path
     app_config: dict[str, dict[str, str]]
     list_devices: Callable[[], dict[str, Any]]
-    list_test_packages: Callable[[str], list[dict[str, Any]]]
+    list_test_packages: Callable[[str, str | None], list[dict[str, Any]]]
     run_tests: Callable[[dict[str, Any]], dict[str, Any]]
     task_status: Callable[[str], dict[str, Any]]
     get_task_history: Callable[..., list[dict[str, Any]]]
@@ -54,7 +54,8 @@ def register_routes(app: Flask, deps: ApiDeps) -> None:
     def api_list_test_packages() -> Any:
         payload = request.get_json(silent=True) or {}
         app_key = payload.get("app_key") or "lysora"
-        packages = deps.list_test_packages(app_key)
+        device_platform = (payload.get("device_platform") or "").strip().lower() or None
+        packages = deps.list_test_packages(app_key, device_platform)
         return jsonify(
             {
                 "ok": True,

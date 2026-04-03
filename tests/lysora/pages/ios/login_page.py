@@ -44,6 +44,17 @@ class IOSLysoraLoginPage(IOSLysoraPage):
             'type == "XCUIElementTypeButton" AND (name == "Agree" OR label == "Agree" OR name == "Accept" OR label == "Accept" OR name == "I Agree" OR label == "I Agree")',
         ),
     ]
+    LOGIN_PAGE_READY_LOCATORS = [
+        *EMAIL_INPUT_LOCATORS,
+        *PASSWORD_INPUT_LOCATORS,
+        *LOGIN_BUTTON_LOCATORS,
+    ]
+
+    def is_login_form_visible(self, timeout: int = 8) -> bool:
+        return self.first_visible(self.LOGIN_PAGE_READY_LOCATORS, timeout=timeout) is not None
+
+    def assert_login_form_visible(self, timeout: int = 8) -> None:
+        assert self.is_login_form_visible(timeout=timeout), "Lysora login page did not open"
 
     def enter_email(self, email: str) -> None:
         self.type_visible(self.EMAIL_INPUT_LOCATORS, email)

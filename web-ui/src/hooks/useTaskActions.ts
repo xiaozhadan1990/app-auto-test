@@ -13,6 +13,7 @@ type UseTaskActionsOptions = {
   setActiveTab: Dispatch<SetStateAction<string>>;
   setLogText: Dispatch<SetStateAction<string>>;
   selectedDevice?: string;
+  selectedDevicePlatform?: string;
   selectedApp?: string;
   isSelectedDeviceRunning: boolean;
   executionPackages: string[];
@@ -28,6 +29,7 @@ function useTaskActions({
   setActiveTab,
   setLogText,
   selectedDevice,
+  selectedDevicePlatform,
   selectedApp,
   isSelectedDeviceRunning,
   executionPackages,
@@ -76,6 +78,7 @@ function useTaskActions({
 
       const res = await runTestsRequest({
         device: selectedDevice,
+        device_platform: selectedDevicePlatform,
         app_key: selectedApp,
         test_packages: executionPackages,
         suite,

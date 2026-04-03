@@ -83,6 +83,7 @@ export function getDeviceTableColumns(
 ): Array<Record<string, unknown>> {
   return [
     { title: "设备序列号", dataIndex: "serial" },
+    { title: "平台", render: (_: unknown, device: Device) => (device.platform || "android").toUpperCase() },
     { title: "设备状态", render: (_: unknown, device: Device) => formatDeviceStatus(device.status) },
     {
       title: "任务状态",

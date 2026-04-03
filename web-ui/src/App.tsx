@@ -55,6 +55,7 @@ function App() {
     setActiveTab,
     setLogText,
     selectedDevice: runnerState.selectedDevice,
+    selectedDevicePlatform: runnerState.currentDevice?.platform,
     selectedApp: runnerState.selectedApp,
     isSelectedDeviceRunning: runnerState.isSelectedDeviceRunning,
     executionPackages: queueState.executionPackages,

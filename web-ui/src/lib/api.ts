@@ -86,8 +86,22 @@ export async function getAppOptions(): Promise<AppOption[]> {
   return apiRequest<AppOption[]>("/api/get_app_options");
 }
 
-export async function listTestPackages(appKey: string): Promise<ListTestPackagesResponse> {
-  return apiRequest<ListTestPackagesResponse>("/api/list_test_packages", { app_key: appKey });
+export function listTestPackages(appKey: string, devicePlatform?: string): Promise<ListTestPackagesResponse>;
+export function listTestPackages(params: {
+  appKey: string;
+  devicePlatform?: string;
+}): Promise<ListTestPackagesResponse>;
+export async function listTestPackages(
+  appKeyOrParams: string | { appKey: string; devicePlatform?: string },
+  devicePlatformArg?: string
+): Promise<ListTestPackagesResponse> {
+  const appKey = typeof appKeyOrParams === "string" ? appKeyOrParams : appKeyOrParams.appKey;
+  const devicePlatform =
+    typeof appKeyOrParams === "string" ? devicePlatformArg : appKeyOrParams.devicePlatform;
+  return apiRequest<ListTestPackagesResponse>("/api/list_test_packages", {
+    app_key: appKey,
+    device_platform: devicePlatform,
+  });
 }
 
 export async function runTests(payload: RunTestsPayload): Promise<RunTestsResponse> {

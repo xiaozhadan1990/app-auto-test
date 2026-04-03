@@ -74,8 +74,8 @@ def _report_file() -> Path:
 def _android_capabilities() -> dict[str, Any]:
     caps: dict[str, Any] = {
         "platformName": "Android",
-        "appium:automationName": os.getenv("APPIUM_AUTOMATION_NAME", "UiAutomator2"),
-        "appium:deviceName": os.getenv("APPIUM_DEVICE_NAME", "Android Device"),
+        "appium:automationName": os.getenv("ANDROID_AUTOMATION_NAME", os.getenv("APPIUM_AUTOMATION_NAME", "UiAutomator2")),
+        "appium:deviceName": os.getenv("ANDROID_DEVICE_NAME", os.getenv("APPIUM_DEVICE_NAME", "Android Device")),
         "appium:noReset": _env_bool("APPIUM_NO_RESET", True),
         "appium:newCommandTimeout": _env_int("APPIUM_NEW_COMMAND_TIMEOUT", 240),
     }
@@ -88,8 +88,8 @@ def _android_capabilities() -> dict[str, Any]:
 def _ios_capabilities() -> dict[str, Any]:
     caps: dict[str, Any] = {
         "platformName": "iOS",
-        "appium:automationName": os.getenv("APPIUM_AUTOMATION_NAME", "XCUITest"),
-        "appium:deviceName": os.getenv("APPIUM_DEVICE_NAME", "iPhone"),
+        "appium:automationName": os.getenv("IOS_AUTOMATION_NAME", "XCUITest"),
+        "appium:deviceName": os.getenv("IOS_DEVICE_NAME", os.getenv("APPIUM_DEVICE_NAME", "iPhone")),
         "appium:noReset": _env_bool("APPIUM_NO_RESET", True),
         "appium:newCommandTimeout": _env_int("APPIUM_NEW_COMMAND_TIMEOUT", 240),
     }
@@ -227,7 +227,7 @@ def lysora_app_id(mobile_platform: str) -> str:
         android_env="LYSORA_APP_PACKAGE",
         android_default="com.lysora.lyapp",
         ios_env="LYSORA_IOS_BUNDLE_ID",
-        ios_default=None,
+        ios_default=os.getenv("LYSORA_APP_PACKAGE"),
         platform_name=mobile_platform,
     )
     if not app_id:

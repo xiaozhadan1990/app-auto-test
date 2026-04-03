@@ -78,6 +78,7 @@ def run_tests(
     set_device_status: Callable[..., None],
 ) -> dict[str, Any]:
     device = (payload.get("device") or "").strip()
+    device_platform = (payload.get("device_platform") or "").strip().lower()
     app_key = (payload.get("app_key") or "").strip()
     raw_packages = payload.get("test_packages")
     if isinstance(raw_packages, list):
@@ -126,6 +127,8 @@ def run_tests(
 
     env = os.environ.copy()
     env["APPIUM_UDID"] = device
+    if device_platform in {"android", "ios"}:
+        env["APPIUM_PLATFORM_NAME"] = "iOS" if device_platform == "ios" else "Android"
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     env["PYTHONWARNINGS"] = "ignore:pkg_resources is deprecated as an API:UserWarning"
     env["TEST_RESULTS_FILE"] = str(task_results)
@@ -228,6 +231,16 @@ def run_tests(
 
         try:
             with log_path.open("w", encoding="utf-8") as fp:
+                fp.write(
+                    "[runner] launch context:"
+                    f" device={device},"
+                    f" device_platform={device_platform or '-'},"
+                    f" APPIUM_PLATFORM_NAME={env.get('APPIUM_PLATFORM_NAME', '-')},"
+                    f" APPIUM_AUTOMATION_NAME={env.get('APPIUM_AUTOMATION_NAME', '-')},"
+                    f" IOS_AUTOMATION_NAME={env.get('IOS_AUTOMATION_NAME', '-')},"
+                    f" ANDROID_AUTOMATION_NAME={env.get('ANDROID_AUTOMATION_NAME', '-')}\n"
+                )
+                fp.flush()
                 if process.stdout is not None:
                     for line in process.stdout:
                         fp.write(line)

@@ -1,5 +1,6 @@
 export type Device = {
   serial: string;
+  platform?: string;
   status: string;
   brand: string;
   model: string;
@@ -124,6 +125,7 @@ export type ListTestPackagesResponse = ApiOk & {
 
 export type RunTestsPayload = {
   device: string;
+  device_platform?: string;
   app_key: string;
   test_packages: string[];
   suite: string;

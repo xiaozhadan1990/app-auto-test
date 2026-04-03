@@ -16,6 +16,7 @@ class LysoraLoginFlow:
         if not needs_login:
             return
         self.my_page.open_login_entry()
+        self.login_page.assert_login_form_visible(timeout=8)
         self.login_page.enter_email(account.username)
         self.login_page.enter_password(account.password)
         self.login_page.tap_login()

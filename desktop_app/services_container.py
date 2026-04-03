@@ -284,7 +284,9 @@ class DesktopServiceContainer:
         if action == "list_devices":
             return self.list_devices()
         if action == "list_test_packages":
-            return {"ok": True, "packages": self.list_test_packages(str(payload.get("app_key") or "lysora"))}
+            app_key = str(payload.get("app_key") or "lysora")
+            device_platform = str(payload.get("device_platform") or "").strip().lower() or None
+            return {"ok": True, "packages": self.list_test_packages(app_key, device_platform)}
         if action == "run_tests":
             return self.run_tests(payload)
         if action == "stop_task":
@@ -349,12 +351,8 @@ class DesktopServiceContainer:
             item["runtime_status"] = runtime_status
         return result
 
-    def list_test_packages(self, app_key: str) -> list[dict[str, Any]]:
-        return list_test_packages_impl(
-            app_key=app_key,
-            app_config=self.app_config,
-            project_root=self.project_root,
-        )
+    def list_test_packages(self, app_key: str, device_platform: str | None = None) -> list[dict[str, Any]]:
+        return list_test_packages_impl(app_key, self.app_config, self.project_root, device_platform)
 
     def startup_info(self) -> dict[str, Any]:
         cache_key = f"startup_info:{self.adb_bin}"
@@ -397,8 +395,20 @@ class DesktopServiceContainer:
             )
 
     def run_tests(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized_payload = dict(payload or {})
+        device = str(normalized_payload.get("device") or "").strip()
+        platform = str(normalized_payload.get("device_platform") or "").strip().lower()
+        if device and platform not in {"android", "ios"}:
+            devices_resp = self.list_devices()
+            if devices_resp.get("ok"):
+                for item in devices_resp.get("devices") or []:
+                    if str(item.get("serial") or "").strip() == device:
+                        inferred = str(item.get("platform") or "").strip().lower()
+                        if inferred in {"android", "ios"}:
+                            normalized_payload["device_platform"] = inferred
+                        break
         return run_tests_impl(
-            payload,
+            normalized_payload,
             runtime=self.task_runtime,
             app_config=self.app_config,
             project_root=self.project_root,

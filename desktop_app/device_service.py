@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import threading
 import time
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+import shutil
 from typing import Any, Mapping
 
 
@@ -81,10 +84,19 @@ def _get_app_version(adb_bin: str, serial: str, package_name: str, cwd: Path) ->
     return m.group(1) if m else "未安装"
 
 
-def _app_config_signature(app_config: Mapping[str, Mapping[str, str]]) -> tuple[tuple[str, str], ...]:
+def _app_id_for_platform(app_item: Mapping[str, str], platform: str) -> str:
+    if platform == "ios":
+        return str(app_item.get("ios_bundle_id") or app_item.get("package_name") or "")
+    return str(app_item.get("package_name") or "")
+
+
+def _app_config_signature(
+    app_config: Mapping[str, Mapping[str, str]],
+    platform: str,
+) -> tuple[tuple[str, str], ...]:
     return tuple(
         sorted(
-            (str(key), str(value.get("package_name") or ""))
+            (str(key), _app_id_for_platform(value, platform))
             for key, value in app_config.items()
         )
     )
@@ -135,6 +147,7 @@ def _build_device_entry(
     if status != "device":
         return {
             "serial": serial,
+            "platform": "android",
             "status": status,
             "brand": "-",
             "model": "-",
@@ -142,7 +155,7 @@ def _build_device_entry(
             "app_versions": {},
         }
 
-    app_signature = _app_config_signature(app_config)
+    app_signature = _app_config_signature(app_config, "android")
     cached = _get_cached_device_entry(serial, status, app_signature)
     if cached is not None:
         return cached
@@ -154,6 +167,7 @@ def _build_device_entry(
     }
     entry = {
         "serial": serial,
+        "platform": "android",
         "status": status,
         "brand": props["brand"],
         "model": props["model"],
@@ -164,35 +178,227 @@ def _build_device_entry(
     return entry
 
 
+def _normalize_ios_version(raw_version: str) -> str:
+    raw = (raw_version or "").strip()
+    if not raw:
+        return "-"
+    # "26.3.1 (23D8133)" -> "26.3.1"
+    return raw.split(" ", 1)[0]
+
+
+def _extract_json_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, dict):
+        for key in ("string", "value", "number", "integer", "double"):
+            val = value.get(key)
+            if isinstance(val, (str, int, float)):
+                return str(val).strip()
+    return ""
+
+
+def _iter_dict_nodes(payload: Any):
+    if isinstance(payload, dict):
+        yield payload
+        for value in payload.values():
+            yield from _iter_dict_nodes(value)
+    elif isinstance(payload, list):
+        for item in payload:
+            yield from _iter_dict_nodes(item)
+
+
+def _extract_ios_app_version_from_payload(payload: Any, bundle_id: str) -> str:
+    bundle_keys = ("bundleid", "bundle_id", "bundleidentifier", "identifier")
+    version_keys = (
+        "shortversion",
+        "shortversionstring",
+        "bundleshortversionstring",
+        "version",
+        "bundleversion",
+    )
+
+    for node in _iter_dict_nodes(payload):
+        normalized = {str(k).lower(): v for k, v in node.items()}
+        node_bundle_id = ""
+        for key in bundle_keys:
+            if key in normalized:
+                node_bundle_id = _extract_json_text(normalized[key])
+                if node_bundle_id:
+                    break
+        if node_bundle_id != bundle_id:
+            continue
+        for key in version_keys:
+            if key not in normalized:
+                continue
+            version = _extract_json_text(normalized[key])
+            if version:
+                return version
+    return ""
+
+
+def _get_ios_app_version(serial: str, bundle_id: str, cwd: Path) -> str:
+    if not bundle_id:
+        return "-"
+    if shutil.which("xcrun") is None:
+        return "-"
+
+    tmp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(prefix="devicectl-", suffix=".json", delete=False) as fp:
+            tmp_path = fp.name
+        code, _ = _run_command(
+            [
+                "xcrun",
+                "devicectl",
+                "--timeout",
+                "10",
+                "--json-output",
+                tmp_path,
+                "device",
+                "info",
+                "apps",
+                "--device",
+                serial,
+                "--bundle-id",
+                bundle_id,
+            ],
+            cwd=cwd,
+            timeout=20,
+        )
+        if code != 0 and not Path(tmp_path).exists():
+            return "-"
+        try:
+            payload = json.loads(Path(tmp_path).read_text(encoding="utf-8"))
+        except Exception:
+            return "-"
+        version = _extract_ios_app_version_from_payload(payload, bundle_id)
+        if version:
+            return version
+        # 无命中版本字段，通常代表应用未安装或设备暂不可查询。
+        return "未安装" if code == 0 else "-"
+    finally:
+        if tmp_path:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _build_ios_device_entry(
+    base_item: Mapping[str, Any],
+    app_config: Mapping[str, Mapping[str, str]],
+    project_root: Path,
+) -> dict[str, Any]:
+    serial = str(base_item.get("serial") or "")
+    status = str(base_item.get("status") or "")
+    app_signature = _app_config_signature(app_config, "ios")
+    cached = _get_cached_device_entry(serial, status, app_signature)
+    if cached is not None:
+        return cached
+
+    if status != "device":
+        entry = dict(base_item)
+        entry["app_versions"] = {}
+        _set_cached_device_entry(serial, status, app_signature, entry)
+        return entry
+
+    app_versions = {
+        app_key: _get_ios_app_version(serial, _app_id_for_platform(conf, "ios"), project_root)
+        for app_key, conf in app_config.items()
+    }
+    entry = dict(base_item)
+    entry["app_versions"] = app_versions
+    _set_cached_device_entry(serial, status, app_signature, entry)
+    return entry
+
+
+def _list_ios_devices(
+    app_config: Mapping[str, Mapping[str, str]],
+    project_root: Path,
+) -> tuple[list[dict[str, Any]], str | None]:
+    if shutil.which("xcrun") is None:
+        return [], None
+    code, out = _run_command(["xcrun", "xcdevice", "list", "--timeout", "3"], cwd=project_root, timeout=30)
+    if code != 0:
+        return [], out or "无法执行 xcrun xcdevice list"
+    try:
+        payload = json.loads(out)
+    except Exception as exc:
+        return [], f"解析 iOS 设备列表失败: {exc}"
+    if not isinstance(payload, list):
+        return [], "iOS 设备列表格式异常"
+
+    devices: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        if bool(item.get("simulator")):
+            continue
+        platform = str(item.get("platform") or "")
+        if "iphoneos" not in platform:
+            continue
+        serial = str(item.get("identifier") or "").strip()
+        if not serial:
+            continue
+        base_entry = {
+            "serial": serial,
+            "platform": "ios",
+            "status": "device" if bool(item.get("available")) else "unavailable",
+            "brand": "Apple",
+            "model": str(item.get("modelName") or item.get("name") or "-"),
+            "os_version": _normalize_ios_version(str(item.get("operatingSystemVersion") or "")),
+            "app_versions": {},
+        }
+        devices.append(_build_ios_device_entry(base_entry, app_config, project_root))
+    return devices, None
+
+
 def list_devices(
     adb_bin: str,
     app_config: Mapping[str, Mapping[str, str]],
     project_root: Path,
 ) -> dict[str, Any]:
-    """列举 ADB 设备并补充品牌、型号、系统及应用版本信息。"""
-    code, out = _run_command([adb_bin, "devices"],
-                             cwd=project_root, timeout=20)
+    """列举 Android/iOS 设备并补充品牌、型号、系统及应用版本信息。"""
+    warnings: list[str] = []
+    android_devices: list[dict[str, Any]] = []
+
+    code, out = _run_command([adb_bin, "devices"], cwd=project_root, timeout=20)
     if code != 0:
-        return {"ok": False, "devices": [], "error": out or "无法执行 adb devices"}
+        warnings.append(out or "无法执行 adb devices")
+    else:
+        parsed_devices: list[tuple[str, str]] = []
+        for line in out.splitlines():
+            line = line.strip()
+            if not line or line.startswith("List of devices") or "\t" not in line:
+                continue
+            serial, status = line.split("\t", 1)
+            parsed_devices.append((serial.strip(), status.strip()))
+        if parsed_devices:
+            max_workers = min(max(len(parsed_devices), 1), 4)
+            ordered: list[dict[str, Any] | None] = [None] * len(parsed_devices)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_map = {
+                    executor.submit(_build_device_entry, adb_bin, serial, status, app_config, project_root): idx
+                    for idx, (serial, status) in enumerate(parsed_devices)
+                }
+                for future in as_completed(future_map):
+                    ordered[future_map[future]] = future.result()
+            android_devices = [item for item in ordered if item is not None]
 
-    parsed_devices: list[tuple[str, str]] = []
-    for line in out.splitlines():
-        line = line.strip()
-        if not line or line.startswith("List of devices") or "\t" not in line:
-            continue
-        serial, status = line.split("\t", 1)
-        parsed_devices.append((serial.strip(), status.strip()))
-    if not parsed_devices:
-        return {"ok": True, "devices": []}
+    ios_devices, ios_error = _list_ios_devices(app_config, project_root)
+    if ios_error:
+        warnings.append(ios_error)
 
-    max_workers = min(max(len(parsed_devices), 1), 4)
-    ordered: list[dict[str, Any] | None] = [None] * len(parsed_devices)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_map = {
-            executor.submit(_build_device_entry, adb_bin, serial, status, app_config, project_root): idx
-            for idx, (serial, status) in enumerate(parsed_devices)
-        }
-        for future in as_completed(future_map):
-            ordered[future_map[future]] = future.result()
-    devices = [item for item in ordered if item is not None]
-    return {"ok": True, "devices": devices}
+    devices = [*android_devices, *ios_devices]
+    devices.sort(key=lambda item: (str(item.get("platform") or ""), str(item.get("serial") or "")))
+
+    if devices:
+        result: dict[str, Any] = {"ok": True, "devices": devices}
+        if warnings:
+            result["warnings"] = warnings
+        return result
+    if warnings:
+        return {"ok": False, "devices": [], "error": "; ".join(warnings)}
+    return {"ok": True, "devices": []}

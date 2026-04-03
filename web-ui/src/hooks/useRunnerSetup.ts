@@ -132,14 +132,17 @@ function useRunnerSetup({ setLogText }: UseRunnerSetupOptions) {
   const refreshPackages = async (appKey?: string) => {
     const targetApp = appKey || selectedApp;
     if (!targetApp) return;
-    const res = await listTestPackages(targetApp);
+    const res = await listTestPackages({
+      appKey: targetApp,
+      devicePlatform: currentDevice?.platform,
+    });
     if (!res.ok) {
       setLogText(`加载用例列表失败\n${res.error || "unknown error"}`);
       return;
     }
     const rawList = Array.isArray(res.packages) ? res.packages : [];
     const list: TestPackageOption[] = rawList
-      .map((entry) => {
+      .map<TestPackageOption | null>((entry) => {
         if (typeof entry === "string") {
           return { value: entry, label: entry };
         }
@@ -178,7 +181,7 @@ function useRunnerSetup({ setLogText }: UseRunnerSetupOptions) {
     if (selectedApp) {
       void refreshPackages(selectedApp);
     }
-  }, [selectedApp]);
+  }, [selectedApp, selectedDevice]);
 
   return {
     startupMissing,
