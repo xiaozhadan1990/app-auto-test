@@ -128,11 +128,6 @@ fi
 echo "[Step] Running PyInstaller..."
 PYARGS=(--noconfirm --clean --onedir --name "$APP_NAME")
 PYARGS+=(--add-data "ui${DATA_SEP}ui")
-PYARGS+=(--add-data "tests${DATA_SEP}tests")
-PYARGS+=(--add-data "conftest.py${DATA_SEP}.")
-PYARGS+=(--add-data "pytest.ini${DATA_SEP}.")
-PYARGS+=(--collect-all appium)
-PYARGS+=(--collect-all selenium)
 [[ -f .env ]] && PYARGS+=(--add-data ".env${DATA_SEP}.")
 [[ -f .env.example ]] && PYARGS+=(--add-data ".env.example${DATA_SEP}.")
 

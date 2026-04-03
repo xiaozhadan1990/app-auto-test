@@ -5,11 +5,7 @@ description = "Mobile automation test runner with Flask desktop web UI."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "Appium-Python-Client",
-    "pytest",
-    "allure-pytest",
-    "selenium",
-    "Pillow",
+    "airtest",
     "Flask",
     "waitress",
     "websocket-client",
@@ -20,19 +16,6 @@ dependencies = [
 
 [tool.uv]
 default-groups = []
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-v"
-markers = [
-    "smoke: 冒烟测试（快速验证关键路径）",
-    "full: 全量回归测试",
-    "ruijieCloud: RuijieCloud 相关测试",
-    "lysora: Lysora 相关测试",
-    "reyee: Reyee 相关测试",
-    "case_name(name): 自定义报告中的用例展示名",
-    "case_priority(value): 用例执行优先级，值越小越先执行",
-]
 
 [tool.pylint.main]
 ignore-paths = [

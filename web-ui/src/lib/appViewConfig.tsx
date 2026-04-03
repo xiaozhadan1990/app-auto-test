@@ -44,11 +44,7 @@ export function getTabItems() {
 }
 
 export function getSuiteOptions(): SelectOption[] {
-  return [
-    { value: "all", label: "全部" },
-    { value: "smoke", label: "冒烟测试" },
-    { value: "full", label: "全量测试" },
-  ];
+  return [{ value: "custom", label: "自定义脚本序列" }];
 }
 
 export function getHistoryStatusOptions(): SelectOption[] {
@@ -110,11 +106,14 @@ export function getDeviceTableColumns(
     { title: "型号", dataIndex: "model" },
     { title: "系统版本", dataIndex: "os_version" },
     {
-      title: "应用版本",
-      render: (_: unknown, device: Device) =>
-        `Lysora: ${(device.app_versions && device.app_versions.lysora) || "-"} / RuijieCloud: ${
-          (device.app_versions && device.app_versions.ruijieCloud) || "-"
-        } / Reyee: ${(device.app_versions && device.app_versions.reyee) || "-"}`,
+      title: "附加信息",
+      render: (_: unknown, device: Device) => {
+        const entries = Object.entries(device.app_versions || {});
+        if (!entries.length) {
+          return "-";
+        }
+        return entries.map(([key, value]) => `${key}: ${value || "-"}`).join(" / ");
+      },
     },
   ];
 }
@@ -145,7 +144,7 @@ export function getResultsTableColumns(): Array<Record<string, unknown>> {
               {formatRunStatus(record.status)}
             </Tag>
             {warn && (
-              <Tag color="gold" title={record.allure_output || "报告后处理存在告警"}>
+              <Tag color="gold" title={record.report_output || "报告后处理存在告警"}>
                 报告告警
               </Tag>
             )}
@@ -156,13 +155,13 @@ export function getResultsTableColumns(): Array<Record<string, unknown>> {
     { title: "开始时间", dataIndex: "start_time", width: 170 },
     { title: "结束时间", dataIndex: "end_time", width: 170 },
     {
-      title: "Pytest 结果",
-      render: (_: unknown, record: TaskHistoryItem) => formatExitCode(record.pytest_exit_code),
+      title: "执行结果",
+      render: (_: unknown, record: TaskHistoryItem) => formatExitCode(record.run_exit_code),
       width: 120,
     },
     {
-      title: "报告结果",
-      render: (_: unknown, record: TaskHistoryItem) => formatExitCode(record.allure_exit_code),
+      title: "报告生成",
+      render: (_: unknown, record: TaskHistoryItem) => formatExitCode(record.report_exit_code),
       width: 120,
     },
     {

@@ -81,10 +81,10 @@ function useTaskMonitor({
       const res = await getTaskStatus(currentTaskId);
       if (!res.ok) return;
       setLogText(
-        `任务: ${res.task_id}\n状态: ${formatRunStatus(res.status)}\nPytest结果: ${formatExitCode(
-          res.pytest_exit_code
-        )}\n报告结果: ${formatExitCode(res.allure_exit_code)}\n\n${res.pytest_output || ""}\n\n--- 报告输出 ---\n${
-          res.allure_output || ""
+        `任务: ${res.task_id}\n状态: ${formatRunStatus(res.status)}\nAirtest 执行: ${formatExitCode(
+          res.run_exit_code
+        )}\n报告生成: ${formatExitCode(res.report_exit_code)}\n\n${res.log_output || ""}\n\n--- 报告输出 ---\n${
+          res.report_output || ""
         }${res.error ? `\n\n错误: ${res.error}` : ""}`
       );
       if (res.status && ["success", "failed", "stopped"].includes(res.status)) {

@@ -133,11 +133,6 @@ if not exist ".env" if exist ".env.example" copy /y ".env.example" ".env" >nul
 
 set "PYARGS=--noconfirm --clean --onedir --name ""%APP_NAME%"""
 set "PYARGS=%PYARGS% --add-data ""ui;ui"""
-set "PYARGS=%PYARGS% --add-data ""tests;tests"""
-set "PYARGS=%PYARGS% --add-data ""conftest.py;."""
-set "PYARGS=%PYARGS% --add-data ""pytest.ini;."""
-set "PYARGS=%PYARGS% --collect-all ""appium"""
-set "PYARGS=%PYARGS% --collect-all ""selenium"""
 if exist ".env" set "PYARGS=%PYARGS% --add-data "".env;."""
 if exist ".env.example" set "PYARGS=%PYARGS% --add-data "".env.example;."""
 

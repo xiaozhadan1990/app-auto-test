@@ -76,6 +76,8 @@ def _get_device_props(adb_bin: str, serial: str, cwd: Path) -> dict[str, str]:
 
 def _get_app_version(adb_bin: str, serial: str, package_name: str, cwd: Path) -> str:
     """通过 dumpsys package 读取应用版本号，未安装时返回提示文案。"""
+    if not package_name.strip():
+        return "-"
     code, out = _adb(adb_bin, serial, [
                      "dumpsys", "package", package_name], cwd=cwd, timeout=40)
     if code != 0:

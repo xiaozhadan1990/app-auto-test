@@ -42,11 +42,11 @@ export type TaskHistoryItem = {
   status: string;
   start_time?: string;
   end_time?: string | null;
-  pytest_exit_code?: number | null;
-  allure_exit_code?: number | null;
+  run_exit_code?: number | null;
+  report_exit_code?: number | null;
   error?: string | null;
   log_path?: string | null;
-  allure_output?: string | null;
+  report_output?: string | null;
   has_report?: boolean;
   report_url?: string | null;
   has_report_data?: boolean;
@@ -79,6 +79,8 @@ export type TaskReportCase = {
   error_message?: string;
   screenshot_url?: string | null;
   video_url?: string | null;
+  case_report_path?: string;
+  case_report_url?: string | null;
 };
 
 export type ReportPagination = {
@@ -90,13 +92,6 @@ export type ReportPagination = {
 export type StartupInfoResponse = {
   ok?: boolean;
   missing_dependencies?: string[];
-};
-
-export type AppiumReadyResponse = {
-  ok?: boolean;
-  running: boolean;
-  server_url?: string;
-  error?: string;
 };
 
 export type DeviceStatusResponse = ApiOk & {
@@ -149,10 +144,10 @@ export type StopTaskPayload = {
 export type TaskStatusResponse = ApiOk & {
   task_id?: string;
   status?: string;
-  pytest_exit_code?: number | null;
-  allure_exit_code?: number | null;
-  pytest_output?: string;
-  allure_output?: string;
+  run_exit_code?: number | null;
+  report_exit_code?: number | null;
+  log_output?: string;
+  report_output?: string;
   error?: string;
   device?: string;
   has_report?: boolean;

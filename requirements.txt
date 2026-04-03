@@ -1,7 +1,4 @@
-Appium-Python-Client
-pytest
-selenium
-Pillow
+airtest
 Flask
 websocket-client
 typing_extensions>=4.15.0

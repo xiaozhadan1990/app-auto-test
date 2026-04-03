@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import { getAppiumReady, openReport as openReportRequest, runTests as runTestsRequest, stopTask } from "../lib/api";
+import { openReport as openReportRequest, runTests as runTestsRequest, stopTask } from "../lib/api";
 
 type MessageApi = {
   error: (content: string) => void;
@@ -41,19 +41,8 @@ function useTaskActions({
 }: UseTaskActionsOptions) {
   const runTests = async () => {
     try {
-      const appium = await getAppiumReady();
-      if (!appium.running) {
-        const addr = appium.server_url || "http://127.0.0.1:4723";
-        msgApi.error(`Appium 未启动（${addr}）`);
-        setLogText(
-          `执行已取消：Appium 未启动\n地址：${addr}\n详情：${appium.error || "unknown error"}`
-        );
-        setActiveTab("results");
-        return;
-      }
-
       if (!executionPackages.length) {
-        msgApi.error("请先添加至少一个待执行用例");
+        msgApi.error("请先添加至少一个 Airtest 脚本");
         return;
       }
       if (!selectedDevice) {
@@ -71,7 +60,7 @@ function useTaskActions({
 
       setActiveTab("results");
       setLogText(
-        `正在执行测试，请稍候...\n执行顺序：\n${executionPackages
+        `正在执行 Airtest 脚本，请稍候...\n执行顺序：\n${executionPackages
           .map((pkg, index) => `${index + 1}. ${pkg}`)
           .join("\n")}`
       );

@@ -325,6 +325,7 @@ def save_task_report_to_db(
                 str(case.get("screenshot") or ""),
                 str(case.get("video") or ""),
                 str(case.get("error_message") or ""),
+                str(case.get("case_report_path") or ""),
             )
             for idx, case in enumerate(tests, start=1)
         ]
@@ -332,8 +333,8 @@ def save_task_report_to_db(
             conn.executemany(
                 """
                 INSERT INTO task_report_cases(
-                    task_id, case_index, node_id, name, status, duration, app, screenshot, video, error_message
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    task_id, case_index, node_id, name, status, duration, app, screenshot, video, error_message, case_report_path
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 case_rows,
             )
@@ -388,6 +389,7 @@ def get_task_report_data(
     for case in cases:
         case["screenshot_url"] = report_asset_url(str(case.get("screenshot") or ""))
         case["video_url"] = report_asset_url(str(case.get("video") or ""))
+        case["case_report_url"] = report_asset_url(str(case.get("case_report_path") or ""))
     return {
         "summary": summary,
         "tests": cases,
@@ -397,4 +399,3 @@ def get_task_report_data(
             "total": total_cases,
         },
     }
-

@@ -1,6 +1,5 @@
 import type {
   AppOption,
-  AppiumReadyResponse,
   DeviceStatusResponse,
   ListDevicesResponse,
   ListTestPackagesResponse,
@@ -39,10 +38,6 @@ async function apiRequest<T>(path: string, body?: unknown): Promise<T> {
 
 export async function getStartupInfo(): Promise<StartupInfoResponse> {
   return apiRequest<StartupInfoResponse>("/api/startup_info");
-}
-
-export async function getAppiumReady(): Promise<AppiumReadyResponse> {
-  return apiRequest<AppiumReadyResponse>("/api/appium_ready");
 }
 
 export async function getDeviceRuntime(deviceSerial: string): Promise<DeviceStatusResponse> {

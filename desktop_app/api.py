@@ -27,7 +27,6 @@ class ApiDeps:
     get_device_status: Callable[[str], dict[str, Any]]
     open_report: Callable[[], dict[str, Any]]
     startup_info: Callable[[], dict[str, Any]]
-    appium_ready: Callable[[], dict[str, Any]]
     remote_ws_status: Callable[[], dict[str, Any]]
     read_remote_ws_log_lines: Callable[[int], list[str]]
 
@@ -157,10 +156,6 @@ def register_routes(app: Flask, deps: ApiDeps) -> None:
     @app.get("/api/startup_info")
     def api_startup_info() -> Any:
         return jsonify(deps.startup_info())
-
-    @app.get("/api/appium_ready")
-    def api_appium_ready() -> Any:
-        return jsonify(deps.appium_ready())
 
     @app.get("/api/remote_ws_status")
     def api_remote_ws_status() -> Any:

@@ -49,7 +49,7 @@ function ResultsTab({
           <Button onClick={onRefreshTaskStatus} disabled={!currentTaskId}>
             刷新任务状态
           </Button>
-          <Button onClick={onOpenReport}>打开最近报告</Button>
+          <Button onClick={onOpenReport}>打开最近 Airtest 报告</Button>
         </Space>
       }
     >

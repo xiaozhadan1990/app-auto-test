@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Card, Col, Row, Select, Space, Table, Typography } from "antd";
 import type { TableProps } from "antd";
 import type { TaskHistoryItem, TaskReportCase, TaskReportSummary } from "../types/app";
@@ -46,9 +47,23 @@ function ReportTab({
   onRefreshReport,
   onOpenHtmlReport,
 }: ReportTabProps) {
+  const previewCases = useMemo(
+    () => reportCases.filter((item) => Boolean(item.case_report_url)),
+    [reportCases]
+  );
+  const [previewCaseIndex, setPreviewCaseIndex] = useState<number>();
+  const previewCase = useMemo(
+    () => previewCases.find((item) => item.case_index === previewCaseIndex) || previewCases[0],
+    [previewCaseIndex, previewCases]
+  );
+
+  useEffect(() => {
+    setPreviewCaseIndex(previewCases[0]?.case_index);
+  }, [reportTaskId, previewCases]);
+
   return (
     <Card
-      title="测试报告"
+      title="Airtest 报告"
       extra={
         <Space wrap>
           <Select
@@ -125,12 +140,56 @@ function ReportTab({
           </Col>
         </Row>
       )}
+      {previewCase?.case_report_url && (
+        <Card
+          size="small"
+          title="Airtest HTML 预览"
+          style={{ marginBottom: 12 }}
+          extra={
+            <Space wrap>
+              <Select
+                style={{ width: 380 }}
+                value={previewCase.case_index}
+                onChange={setPreviewCaseIndex}
+                options={previewCases.map((item) => ({
+                  value: item.case_index,
+                  label: `${item.case_index}. ${item.name || item.node_id || "未命名脚本"}`,
+                }))}
+              />
+              <Button onClick={() => previewCase.case_report_url && window.open(previewCase.case_report_url, "_blank")}>
+                打开当前 Airtest 报告
+              </Button>
+            </Space>
+          }
+        >
+          <iframe
+            key={previewCase.case_report_url}
+            src={previewCase.case_report_url}
+            title={previewCase.name || "airtest-report"}
+            style={{
+              width: "100%",
+              height: 720,
+              border: "1px solid #ddd",
+              borderRadius: 8,
+              background: "#fff",
+            }}
+          />
+        </Card>
+      )}
       <Table
         rowKey={(record) => `${record.task_id}-${record.case_index}`}
         size="small"
         loading={reportLoading}
         pagination={reportTablePagination}
         dataSource={reportCases}
+        onRow={(record) => ({
+          onClick: () => {
+            if (record.case_report_url) {
+              setPreviewCaseIndex(record.case_index);
+            }
+          },
+          style: { cursor: record.case_report_url ? "pointer" : "default" },
+        })}
         expandable={{
           expandedRowRender: (record) => (
             <div>
@@ -141,6 +200,13 @@ function ReportTab({
                 <b>错误：</b> {record.error_message || "-"}
               </div>
               <Space style={{ marginTop: 8 }}>
+                <Button
+                  size="small"
+                  disabled={!record.case_report_url}
+                  onClick={() => record.case_report_url && window.open(record.case_report_url, "_blank")}
+                >
+                  查看 Airtest 报告
+                </Button>
                 <Button
                   size="small"
                   disabled={!record.screenshot_url}

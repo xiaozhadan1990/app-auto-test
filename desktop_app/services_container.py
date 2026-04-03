@@ -200,19 +200,19 @@ class DesktopServiceContainer:
         self,
         task_id: str,
         status: str,
-        pytest_exit_code: int | None = None,
-        allure_exit_code: int | None = None,
+        run_exit_code: int | None = None,
+        report_exit_code: int | None = None,
         error: str | None = None,
-        allure_output: str | None = None,
+        report_output: str | None = None,
     ) -> None:
         update_task_history_impl(
             task_id,
             status,
             db_conn_fn=self.db_conn,
-            pytest_exit_code=pytest_exit_code,
-            allure_exit_code=allure_exit_code,
+            run_exit_code=run_exit_code,
+            report_exit_code=report_exit_code,
             error=error,
-            allure_output=allure_output,
+            report_output=report_output,
         )
 
     def get_task_history(
@@ -322,8 +322,6 @@ class DesktopServiceContainer:
             return {"ok": True, "device_status": self.get_device_status(device)}
         if action == "startup_info":
             return self.startup_info()
-        if action == "appium_ready":
-            return self.appium_ready()
         return {"ok": False, "error": f"unsupported action: {action}"}
 
     def start_remote_ws_if_needed(self, websocket_client_module: Any) -> None:
@@ -363,36 +361,9 @@ class DesktopServiceContainer:
         adb_available = bool(self.adb_bin and shutil.which(self.adb_bin))
         if not adb_available and shutil.which("adb") is None:
             missing.append("adb")
+        if shutil.which("airtest") is None:
+            missing.append("airtest")
         return self._set_probe_cache(cache_key, {"ok": True, "missing_dependencies": missing})
-
-    def appium_ready(self) -> dict[str, Any]:
-        server_url = (os.getenv("APPIUM_SERVER_URL", "http://127.0.0.1:4723") or "").strip().rstrip("/")
-        if not server_url:
-            return {"ok": True, "running": False, "server_url": "", "error": "APPIUM_SERVER_URL 为空"}
-        cache_key = f"appium_ready:{server_url}"
-        cached = self._get_probe_cache(cache_key, ttl_sec=2.0)
-        if cached is not None:
-            return cached
-        import urllib.request
-
-        status_url = f"{server_url}/status"
-        try:
-            with urllib.request.urlopen(status_url, timeout=1.5) as resp:
-                running = resp.status == 200
-                return self._set_probe_cache(
-                    cache_key,
-                    {
-                        "ok": True,
-                        "running": running,
-                        "server_url": server_url,
-                        "error": None if running else f"HTTP {resp.status}",
-                    },
-                )
-        except Exception as exc:
-            return self._set_probe_cache(
-                cache_key,
-                {"ok": True, "running": False, "server_url": server_url, "error": str(exc)},
-            )
 
     def run_tests(self, payload: dict[str, Any]) -> dict[str, Any]:
         normalized_payload = dict(payload or {})
@@ -419,7 +390,6 @@ class DesktopServiceContainer:
             python_executable=sys.executable,
             ensure_task_log_dir=self.ensure_task_log_dir,
             safe_display_path=self.safe_display_path,
-            appium_ready=self.appium_ready,
             task_report_paths=self.task_report_paths,
             save_task_report_to_db=self.save_task_report_to_db,
             insert_task_history=self.insert_task_history,
@@ -486,8 +456,6 @@ class DesktopServiceContainer:
             get_device_status=self.get_device_status,
             open_report=self.open_report,
             startup_info=self.startup_info,
-            appium_ready=self.appium_ready,
             remote_ws_status=self.remote_ws_status,
             read_remote_ws_log_lines=self.read_remote_ws_log_lines,
         )
-

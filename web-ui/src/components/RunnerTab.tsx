@@ -81,15 +81,15 @@ function RunnerTab({
     <Card title="选择设备并执行测试">
       <Row gutter={[12, 12]}>
         <Col span={6}>
-          <label>测试设备</label>
+          <label>测试手机</label>
           <Select style={{ width: "100%" }} value={selectedDevice} onChange={onSelectDevice} options={deviceSelectOptions} />
         </Col>
         <Col span={6}>
-          <label>应用</label>
+          <label>脚本目录</label>
           <Select style={{ width: "100%" }} value={selectedApp} onChange={onSelectApp} options={appSelectOptions} />
         </Col>
         <Col span={6}>
-          <label>可选用例</label>
+          <label>可选脚本</label>
           <Select
             style={{ width: "100%" }}
             value={selectedPackage}
@@ -98,7 +98,7 @@ function RunnerTab({
           />
         </Col>
         <Col span={6}>
-          <label>测试范围</label>
+          <label>执行模式</label>
           <Select style={{ width: "100%" }} value={suite} onChange={onSelectSuite} options={suiteOptions} />
         </Col>
       </Row>
@@ -108,7 +108,7 @@ function RunnerTab({
           刷新设备状态
         </Button>
         <Button htmlType="button" onClick={onRefreshPackages}>
-          刷新用例列表
+          刷新脚本列表
         </Button>
         <Button htmlType="button" type="primary" onClick={onRunTests} disabled={isSelectedDeviceRunning}>
           开始执行

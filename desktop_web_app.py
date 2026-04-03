@@ -9,6 +9,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
+from desktop_app.airtest_service import airtest_case_root
 from desktop_app.app_factory import create_app
 from desktop_app.services_container import DesktopServiceContainer
 
@@ -76,26 +77,11 @@ def _load_local_env_file() -> None:
 _load_local_env_file()
 
 APP_CONFIG: dict[str, dict[str, str]] = {
-    "lysora": {
-        "label": "Lysora",
-        "package_name": os.getenv("LYSORA_APP_PACKAGE", "com.lysora.lyapp"),
-        "ios_bundle_id": os.getenv("LYSORA_IOS_BUNDLE_ID", os.getenv("LYSORA_APP_PACKAGE", "com.lysora.lyapp")),
-        "default_test_package": "tests/lysora",
-    },
-    "ruijieCloud": {
-        "label": "RuijieCloud",
-        "package_name": os.getenv("RUIJIECLOUD_APP_PACKAGE", "cn.com.ruijie.cloudapp"),
-        "ios_bundle_id": os.getenv(
-            "RUIJIECLOUD_IOS_BUNDLE_ID",
-            os.getenv("RUIJIECLOUD_APP_PACKAGE", "cn.com.ruijie.cloudapp"),
-        ),
-        "default_test_package": "tests/ruijieCloud",
-    },
-    "reyee": {
-        "label": "Reyee",
-        "package_name": os.getenv("REEYEE_APP_PACKAGE", "cn.com.ruijie.ywl"),
-        "ios_bundle_id": os.getenv("REEYEE_IOS_BUNDLE_ID", os.getenv("REEYEE_APP_PACKAGE", "cn.com.ruijie.ywl")),
-        "default_test_package": "tests/reyee",
+    "airtest": {
+        "label": "海外 Airtest 脚本集",
+        "package_name": "",
+        "ios_bundle_id": "",
+        "default_test_package": str(airtest_case_root()),
     },
 }
 
@@ -132,12 +118,6 @@ def _auto_open_browser(url: str) -> None:
 
 
 def main() -> None:
-    if len(sys.argv) > 1 and sys.argv[1] == "--run-pytest":
-        import pytest
-
-        exit_code = int(pytest.main(sys.argv[2:]))
-        raise SystemExit(exit_code)
-
     services.init_runtime_db()
     services.start_remote_ws_if_needed(websocket_client)
     host = (os.getenv("DESKTOP_WEB_HOST") or DEFAULT_HOST).strip() or DEFAULT_HOST

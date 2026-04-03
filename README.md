@@ -1,13 +1,13 @@
 # app-auto-test
 
-移动端自动化测试工具，包含 Python 后端、桌面 Web UI、pytest/Appium 测试执行链路，以及报告生成与查看能力。
+移动端自动化测试工具，包含 Python 后端、桌面 Web UI、Airtest 执行链路，以及报告生成与查看能力。
 
 当前项目以 Android 自动化测试为主，测试架构已经预留 iOS 适配能力。
 
 ## 功能概览
 
-- 使用 Appium + pytest 执行移动端自动化测试
-- 支持 `Lysora` 和 `RuijieCloud` 两个应用的测试
+- 使用 Airtest 执行移动端自动化测试
+- 支持扫描外部 Airtest 脚本目录并按设备执行
 - 提供桌面 Web UI 管理设备、任务和报告
 - 保存任务历史、日志、截图、视频和测试报告
 - 支持 PyInstaller 打包桌面版运行程序
@@ -24,12 +24,11 @@ app-auto-test/
 ├─ ui/
 ├─ reports/
 ├─ conftest.py
-├─ pytest.ini
 ├─ pyproject.toml
 ├─ uv.lock
 ├─ start_dev_all.ps1
 ├─ stop_dev_all.ps1
-├─ run_tests_and_allure.ps1
+├─ scripts/
 └─ build_web_ui.bat
 ```
 
@@ -38,11 +37,11 @@ app-auto-test/
 - `uv`
 - Node.js
 - yarn
-- Appium Server
+- airtest
 - adb
 - Android 设备或模拟器
 
-如果后续执行 iOS 用例，还需要补齐 iOS 对应的 Appium/XCUITest 环境。
+如果后续执行 iOS 用例，还需要补齐 iOS 真机连接与 Airtest 对应环境。
 
 ## Python 依赖管理
 
@@ -58,8 +57,7 @@ uv sync
 
 ```powershell
 uv run python .\desktop_web_app.py
-uv run pytest tests/
-uv run pytest tests/ -m smoke
+uv run python .\scripts\run_airtest.py --platform android --device emulator-5554 --list
 ```
 
 ## 环境变量
@@ -73,23 +71,15 @@ Copy-Item .env.example .env
 常用变量包括：
 
 ```env
-APPIUM_SERVER_URL=http://127.0.0.1:4723
-APPIUM_PLATFORM_NAME=android
-APPIUM_AUTOMATION_NAME=UiAutomator2
-APPIUM_DEVICE_NAME=Android Device
-APPIUM_UDID=<device udid>
-
-LYSORA_APP_PACKAGE=com.lysora.lyapp
-RUIJIECLOUD_APP_PACKAGE=cn.com.ruijie.cloudapp
+AIRTEST_CASE_ROOT=/Users/ruijie/Documents/workspace/airProject/海外用例_wln
+AIRTEST_BIN=airtest
 ```
 
-如果后续接入 iOS，可额外配置：
+如果后续接入 iOS，可额外指定平台和设备：
 
 ```env
-APPIUM_PLATFORM_NAME=ios
-LYSORA_IOS_BUNDLE_ID=<ios bundle id>
-RUIJIECLOUD_IOS_BUNDLE_ID=<ios bundle id>
-IOS_PLATFORM_VERSION=<ios version>
+AIRTEST_PLATFORM=ios
+AIRTEST_DEVICE=<ios udid>
 ```
 
 ## 启动项目
@@ -140,49 +130,33 @@ yarn dev
 
 ## 运行测试
 
-### 直接使用 pytest
+### 使用 Airtest 指定设备和指定用例
 
-```powershell
-uv run pytest tests/
-uv run pytest tests/ -m smoke
-uv run pytest tests/ -m "lysora and smoke"
-uv run pytest tests/ -m ruijieCloud
+项目当前默认扫描外部目录：
+
+```text
+/Users/ruijie/Documents/workspace/airProject/海外用例_wln
 ```
 
-### 使用辅助脚本
+如果你已经在本机装好了 `airtest` 命令，可以直接使用项目内脚本入口：
 
 ```powershell
-.\run_tests_and_allure.ps1 -Suite smoke
-.\run_tests_and_allure.ps1 -Suite full -Component lysora
-.\run_tests_and_allure.ps1 -Suite full -Component ruijieCloud -OpenReport
+uv run python .\scripts\run_airtest.py --platform android --device emulator-5554 --list
+uv run python .\scripts\run_airtest.py --platform android --device emulator-5554 --case 登录-切换tab-创建虚拟项目-进入项目加载正常.air
+uv run python .\scripts\run_airtest.py --platform android --device emulator-5554 --case 登录-切换tab-创建虚拟项目-进入项目加载正常.air --case 五个tab页面切换测试.air
 ```
-
-脚本参数：
-
-- `-Suite smoke|full|all`
-- `-Component all|lysora|ruijieCloud`
-- `-GenerateReport`
-- `-OpenReport`
-- `-ServeReport`
 
 说明：
 
-- 测试执行走 `uv run pytest`
-- 脚本会固定输出 `reports/allure-results/`
-- 每次执行前会清理旧的 Allure results
-- 如果系统存在 `allure` 命令，并传了报告参数，脚本会继续生成或打开 Allure 报告
-
-## 测试标记
-
-- `smoke`：冒烟测试
-- `full`：全量回归测试
-- `lysora`：Lysora 相关用例
-- `ruijieCloud`：RuijieCloud 相关用例
-- `case_name(name)`：自定义报告中的用例展示名
+- `--device` 用来指定设备序列号或 iOS UDID
+- `--case` 可重复传入多个 `.air` 用例目录
+- 默认会扫描 `AIRTEST_CASE_ROOT` 指向的目录
+- 日志默认输出到 `reports/airtest/`
+- 如需特殊连接串，可通过 `--device-uri` 覆盖默认生成值
 
 ## 测试报告
 
-项目当前有两套报告输出。
+项目当前的 Airtest 执行会生成一套运行时 JSON / HTML 报告。
 
 ### 1. 运行时 JSON / HTML 报告
 
@@ -190,31 +164,13 @@ uv run pytest tests/ -m ruijieCloud
 
 - `reports/test_results.json`
 - `reports/test_report.html`
+- `reports/task-reports/<task_id>/`
 
 特点：
 
-- 由项目内置报告链路生成
-- 已支持按 `app + platform` 区分截图、视频和测试结果
-- 报告中的图片和视频统一通过后端接口访问
-
-### 2. Allure 报告
-
-默认目录：
-
-- `reports/allure-results/`
-- `reports/allure-html/`
-
-说明：
-
-- 截图和视频会以 Allure 附件形式写入结果目录
-- 不再依赖 `file:///...` 的本地路径打开媒体文件
-
-手动生成：
-
-```powershell
-allure generate reports/allure-results -o reports/allure-html --clean
-allure open reports/allure-html
-```
+- 桌面端会为每次任务生成汇总 HTML 报告
+- 每个 Airtest 脚本会生成自己的独立 HTML 报告
+- 报告中的资源统一通过后端接口访问
 
 ## 打包桌面版
 
@@ -230,7 +186,7 @@ uv sync
 - 打包脚本已改成通过 `uv` 驱动 Python 依赖和 PyInstaller
 - 前端仍通过 Node.js 构建
 - 产物输出到 `dist/`
-- 当前默认不再内置 `ADB / Appium / Node` 工具链
+- 当前默认不再内置 `ADB / airtest / Node` 工具链
 - 目标机器需要自行准备这些运行依赖
 
 ## 当前测试架构建议
@@ -254,10 +210,11 @@ uv sync
 
 ## 常见问题
 
-如果本地执行测试时提示 `127.0.0.1:4723` 连接失败，通常表示：
+如果桌面端没有扫到脚本或执行失败，通常优先检查：
 
-- Appium Server 没有启动
-- 设备没有连接好
-- `.env` 中的 Appium 地址配置不正确
+- `AIRTEST_CASE_ROOT` 是否指向 `/Users/ruijie/Documents/workspace/airProject/海外用例_wln`
+- `airtest` 命令是否可直接在终端执行
+- 设备是否已通过 `adb devices` 或 iOS 真机链路正常连接
+- `.env` 中的 Airtest 路径配置不正确
 
 这不是 `uv` 本身的问题，而是运行环境尚未就绪。

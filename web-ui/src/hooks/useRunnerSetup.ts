@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import {
   fallbackPackageLabel,
-  formatPackageLabel,
   isSameDeviceRuntimeStatus,
   normalizePackageValue,
 } from "../lib/appHelpers";
@@ -12,10 +11,6 @@ import type { AppOption, Device, DeviceRuntimeStatus, TestPackageOption } from "
 type UseRunnerSetupOptions = {
   setLogText: Dispatch<SetStateAction<string>>;
 };
-
-function isAllCasesValue(value: string): boolean {
-  return !value.endsWith(".py");
-}
 
 function useRunnerSetup({ setLogText }: UseRunnerSetupOptions) {
   const [startupMissing, setStartupMissing] = useState<string[]>([]);
@@ -45,26 +40,11 @@ function useRunnerSetup({ setLogText }: UseRunnerSetupOptions) {
   );
   const packageSelectOptions = useMemo(
     () =>
-      [...packages]
-        .sort((left, right) => {
-          const leftIsAll = left.priority === 0 && isAllCasesValue(left.value);
-          const rightIsAll = right.priority === 0 && isAllCasesValue(right.value);
-          if (leftIsAll !== rightIsAll) {
-            return leftIsAll ? -1 : 1;
-          }
-          return 0;
-        })
-        .map((item) => {
-          const isAllCases = item.priority === 0 && isAllCasesValue(item.value);
-          const displayLabel = isAllCases
-            ? `${item.label}（按 case_priority 执行）`
-            : formatPackageLabel(item.label, item.priority);
-          return {
-            value: item.value,
-            label: displayLabel,
-            title: item.tooltip || displayLabel,
-          };
-        }),
+      packages.map((item) => ({
+        value: item.value,
+        label: item.label,
+        title: item.tooltip || item.label,
+      })),
     [packages]
   );
   const packageLabelMap = useMemo(() => {
@@ -73,7 +53,7 @@ function useRunnerSetup({ setLogText }: UseRunnerSetupOptions) {
       const value = normalizePackageValue(item.value);
       if (!value) continue;
       const label = (item.label || "").trim() || fallbackPackageLabel(value);
-      map[value] = isAllCasesValue(value) ? label : formatPackageLabel(label, item.priority);
+      map[value] = label;
     }
     return map;
   }, [packages]);
@@ -117,7 +97,7 @@ function useRunnerSetup({ setLogText }: UseRunnerSetupOptions) {
     } else {
       setSelectedDevice(undefined);
       setDeviceRuntimeMap({});
-      setLogText("未找到可用设备，请检查 adb devices。");
+      setLogText("未找到可用设备，请检查 adb devices 或 iOS 真机连接状态。");
     }
   };
 
@@ -161,7 +141,7 @@ function useRunnerSetup({ setLogText }: UseRunnerSetupOptions) {
       const normalized = normalizePackageValue(old);
       return normalized && values.includes(normalized) ? normalized : values[0];
     });
-    setLogText("用例列表已刷新。");
+    setLogText("Airtest 脚本列表已刷新。");
   };
 
   useEffect(() => {

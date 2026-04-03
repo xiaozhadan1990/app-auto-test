@@ -5,6 +5,14 @@ import sqlite3
 from typing import Any, Callable
 
 
+def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, column_def: str) -> None:
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    existing = {str(row[1]) for row in rows}
+    if column_name in existing:
+        return
+    conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
+
+
 def db_conn(*, reports_root: Any, runtime_db_file: Any) -> sqlite3.Connection:
     """创建并返回一个指向运行时 SQLite 数据库的连接。"""
     reports_root.mkdir(parents=True, exist_ok=True)
@@ -42,14 +50,17 @@ def init_runtime_db(*, db_conn_fn: Callable[[], sqlite3.Connection]) -> None:
                 status TEXT NOT NULL,
                 start_time TEXT NOT NULL,
                 end_time TEXT,
-                pytest_exit_code INTEGER,
-                allure_exit_code INTEGER,
+                run_exit_code INTEGER,
+                report_exit_code INTEGER,
                 error TEXT,
                 log_path TEXT,
-                allure_output TEXT
+                report_output TEXT
             )
             """
         )
+        _ensure_column(conn, "task_run_history", "run_exit_code", "INTEGER")
+        _ensure_column(conn, "task_run_history", "report_exit_code", "INTEGER")
+        _ensure_column(conn, "task_run_history", "report_output", "TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS task_report_summary (
@@ -83,6 +94,7 @@ def init_runtime_db(*, db_conn_fn: Callable[[], sqlite3.Connection]) -> None:
             )
             """
         )
+        _ensure_column(conn, "task_report_cases", "case_report_path", "TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_report_cases_task_id ON task_report_cases(task_id)")
         conn.execute(
             """
@@ -208,10 +220,10 @@ def update_task_history(
     status: str,
     *,
     db_conn_fn: Callable[[], sqlite3.Connection],
-    pytest_exit_code: int | None = None,
-    allure_exit_code: int | None = None,
+    run_exit_code: int | None = None,
+    report_exit_code: int | None = None,
     error: str | None = None,
-    allure_output: str | None = None,
+    report_output: str | None = None,
 ) -> None:
     conn = db_conn_fn()
     try:
@@ -220,13 +232,13 @@ def update_task_history(
             UPDATE task_run_history
             SET status=?,
                 end_time=datetime('now', 'localtime'),
-                pytest_exit_code=?,
-                allure_exit_code=?,
+                run_exit_code=?,
+                report_exit_code=?,
                 error=?,
-                allure_output=?
+                report_output=?
             WHERE task_id=?
             """,
-            (status, pytest_exit_code, allure_exit_code, error, allure_output, task_id),
+            (status, run_exit_code, report_exit_code, error, report_output, task_id),
         )
         conn.commit()
     finally:
@@ -289,4 +301,3 @@ def get_task_record(task_id: str, *, db_conn_fn: Callable[[], sqlite3.Connection
     finally:
         conn.close()
     return dict(row) if row else None
-

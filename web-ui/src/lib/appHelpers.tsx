@@ -48,8 +48,12 @@ export function normalizePackageQueue(input: unknown[]): string[] {
 
 export function fallbackPackageLabel(packageValue: string): string {
   const normalized = packageValue.replace(/\\/g, "/");
+  if (normalized.endsWith(".air")) {
+    const stem = normalized.split("/").pop()?.replace(/\.air$/i, "") || normalized;
+    return stem;
+  }
   if (!normalized.endsWith(".py")) {
-    return normalized;
+    return normalized.split("/").pop() || normalized;
   }
   const segments = normalized.split("/");
   const fileName = segments[segments.length - 1] || normalized;
@@ -162,8 +166,8 @@ export function formatCaseStatus(status?: string): string {
 export function hasReportWarning(task: TaskHistoryItem): boolean {
   const status = (task.status || "").toLowerCase();
   if (status !== "success") return false;
-  if ((task.allure_exit_code ?? 0) !== 0) return true;
-  const output = (task.allure_output || "").toLowerCase();
+  if ((task.report_exit_code ?? 0) !== 0) return true;
+  const output = (task.report_output || "").toLowerCase();
   return output.includes("failed") || output.includes("warning") || output.includes("warn");
 }
 
@@ -191,8 +195,8 @@ export function isSameTaskHistoryList(left: TaskHistoryItem[], right: TaskHistor
       a.status !== b.status ||
       (a.start_time || "") !== (b.start_time || "") ||
       (a.end_time || "") !== (b.end_time || "") ||
-      (a.pytest_exit_code ?? null) !== (b.pytest_exit_code ?? null) ||
-      (a.allure_exit_code ?? null) !== (b.allure_exit_code ?? null) ||
+      (a.run_exit_code ?? null) !== (b.run_exit_code ?? null) ||
+      (a.report_exit_code ?? null) !== (b.report_exit_code ?? null) ||
       (a.error || "") !== (b.error || "") ||
       Boolean(a.has_report) !== Boolean(b.has_report) ||
       (a.report_url || "") !== (b.report_url || "") ||

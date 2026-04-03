@@ -92,7 +92,7 @@ function App() {
     <div style={{ width: "calc(100% - 24px)", maxWidth: "none", margin: "8px 12px 16px", padding: 0 }}>
       {contextHolder}
       <Typography.Title level={3} style={{ marginTop: 4 }}>
-        移动自动化测试桌面端
+        Airtest 自动化测试桌面端
       </Typography.Title>
 
       <StartupAlert startupMissing={runnerState.startupMissing} />

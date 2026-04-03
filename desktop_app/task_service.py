@@ -1,14 +1,25 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 import threading
 import time
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
+
+from .airtest_service import airtest_bin
+from .airtest_service import airtest_case_root
+from .airtest_service import build_airtest_device_uri
+from .airtest_service import case_id
+from .airtest_service import find_first_artifact
+from .airtest_service import resolve_airtest_cases
+from .airtest_service import write_task_html_report
+from .airtest_service import write_task_results
 
 
 @dataclass
@@ -70,7 +81,6 @@ def run_tests(
     python_executable: str,
     ensure_task_log_dir: Callable[[], None],
     safe_display_path: Callable[[Path], str],
-    appium_ready: Callable[[], dict[str, Any]],
     task_report_paths: Callable[[str], tuple[Path, Path]],
     save_task_report_to_db: Callable[[str, Path], bool],
     insert_task_history: Callable[[str, str, str, str, list[str], str], None],
@@ -95,24 +105,16 @@ def run_tests(
         return {"ok": False, "error": "test_packages 不能为空"}
     if not device:
         return {"ok": False, "error": "device 不能为空"}
+    if shutil.which(airtest_bin()) is None:
+        return {"ok": False, "error": "未找到 airtest 命令，请先确认环境已安装并可在命令行直接执行"}
 
-    appium_state = appium_ready()
-    if not appium_state.get("running"):
-        server_url = appium_state.get("server_url") or "http://127.0.0.1:4723"
-        detail = appium_state.get("error") or "unknown error"
-        return {"ok": False, "error": f"Appium 未启动，请先启动后再执行测试。地址: {server_url}，详情: {detail}"}
-
-    pytest_args = [*test_packages, "-v"]
-    if suite in ("smoke", "full"):
-        marker_expr = suite
-        if app_key in app_config:
-            marker_expr = f"{app_key} and {suite}"
-        pytest_args.extend(["-m", marker_expr])
-
-    if is_frozen():
-        cmd = [python_executable, "--run-pytest", *pytest_args]
-    else:
-        cmd = [python_executable, "-m", "pytest", *pytest_args]
+    case_root = airtest_case_root()
+    try:
+        resolved_cases = resolve_airtest_cases(test_packages, case_root)
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": str(exc)}
+    if not resolved_cases:
+        return {"ok": False, "error": "没有可执行的 Airtest 用例"}
 
     with runtime.lock:
         if device in runtime.device_running_task:
@@ -124,41 +126,43 @@ def run_tests(
     log_path = task_log_dir / f"{task_id}.log"
     task_results, task_report = task_report_paths(task_id)
     task_results.parent.mkdir(parents=True, exist_ok=True)
+    task_results.write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "session_start": datetime.now().isoformat(timespec="seconds"),
+                "session_end": "",
+                "total": 0,
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "tests": [],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     env = os.environ.copy()
-    env["APPIUM_UDID"] = device
     if device_platform in {"android", "ios"}:
-        env["APPIUM_PLATFORM_NAME"] = "iOS" if device_platform == "ios" else "Android"
-    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
-    env["PYTHONWARNINGS"] = "ignore:pkg_resources is deprecated as an API:UserWarning"
+        env["AIRTEST_PLATFORM"] = device_platform
+    env["AIRTEST_DEVICE"] = device
+    env["AIRTEST_CASE_ROOT"] = str(case_root)
     env["TEST_RESULTS_FILE"] = str(task_results)
     env["TEST_REPORT_FILE"] = str(task_report)
-
-    try:
-        process = subprocess.Popen(
-            cmd,
-            cwd=str(project_root),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-            env=env,
-        )
-    except Exception as exc:
-        return {"ok": False, "error": f"启动 pytest 失败: {exc}"}
 
     task_info = {
         "task_id": task_id,
         "device": device,
         "status": "running",
-        "cmd": cmd,
-        "process": process,
+        "cmd": [airtest_bin(), "run", *[case_id(item, case_root) for item in resolved_cases]],
+        "process": None,
         "log_path": str(log_path),
         "start_time": time.time(),
-        "pytest_exit_code": None,
-        "allure_exit_code": None,
-        "allure_output": "",
+        "run_exit_code": None,
+        "report_exit_code": None,
+        "report_output": "",
         "error": None,
     }
 
@@ -188,14 +192,18 @@ def run_tests(
         with runtime.lock:
             info = runtime.tasks.get(task_id)
             if info is not None:
-                info["allure_exit_code"] = 0 if initial_report_ok else None
-                info["allure_output"] = initial_output
+                info["report_exit_code"] = 0 if initial_report_ok else None
+                info["report_output"] = initial_output
 
     def _watch_task() -> None:
         exit_code: int | None = None
         last_results_mtime_ns = 0
         last_report_mtime_ns = 0
         sync_errors: list[str] = []
+        overall_failed = False
+        run_results: list[dict[str, Any]] = []
+        session_start = datetime.now().isoformat(timespec="seconds")
+        device_uri = build_airtest_device_uri(device_platform, device) if device_platform else device
 
         def _sync_if_report_changed() -> None:
             nonlocal last_results_mtime_ns, last_report_mtime_ns, sync_errors
@@ -220,14 +228,14 @@ def run_tests(
             with runtime.lock:
                 info = runtime.tasks.get(task_id)
                 if info is not None:
-                    info["allure_exit_code"] = 0 if report_ok else None
-                    info["allure_output"] = (
+                    info["report_exit_code"] = 0 if report_ok else None
+                    info["report_output"] = (
                         f"HTML report generated: {safe_display_path(task_report)}"
                         if report_ok
                         else "HTML report waiting for first case result"
                     )
                     if current_errors:
-                        info["allure_output"] = f"{info['allure_output']}; {'; '.join(current_errors)}"
+                        info["report_output"] = f"{info['report_output']}; {'; '.join(current_errors)}"
 
         try:
             with log_path.open("w", encoding="utf-8") as fp:
@@ -235,19 +243,127 @@ def run_tests(
                     "[runner] launch context:"
                     f" device={device},"
                     f" device_platform={device_platform or '-'},"
-                    f" APPIUM_PLATFORM_NAME={env.get('APPIUM_PLATFORM_NAME', '-')},"
-                    f" APPIUM_AUTOMATION_NAME={env.get('APPIUM_AUTOMATION_NAME', '-')},"
-                    f" IOS_AUTOMATION_NAME={env.get('IOS_AUTOMATION_NAME', '-')},"
-                    f" ANDROID_AUTOMATION_NAME={env.get('ANDROID_AUTOMATION_NAME', '-')}\n"
+                    f" suite={suite},"
+                    f" case_root={case_root},"
+                    f" device_uri={device_uri}\n"
                 )
                 fp.flush()
-                if process.stdout is not None:
-                    for line in process.stdout:
-                        fp.write(line)
-                        fp.flush()
-                        _sync_if_report_changed()
-                exit_code = process.wait()
-                _sync_if_report_changed()
+                for index, current_case in enumerate(resolved_cases, start=1):
+                    case_key = case_id(current_case, case_root)
+                    case_started_at = time.monotonic()
+                    case_output_dir = task_results.parent / f"case-{index:03d}"
+                    case_output_dir.mkdir(parents=True, exist_ok=True)
+                    case_report_file = case_output_dir / "report.html"
+
+                    run_cmd = [
+                        airtest_bin(),
+                        "run",
+                        str(current_case),
+                        "--device",
+                        device_uri,
+                        "--log",
+                        str(case_output_dir),
+                    ]
+                    fp.write(f"\n[airtest] start case {index}: {case_key}\n")
+                    fp.write(f"[airtest] cmd: {' '.join(run_cmd)}\n")
+                    fp.flush()
+
+                    process = subprocess.Popen(
+                        run_cmd,
+                        cwd=str(project_root),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding="utf-8",
+                        errors="ignore",
+                        env=env,
+                    )
+                    with runtime.lock:
+                        info = runtime.tasks.get(task_id)
+                        if info is not None:
+                            info["process"] = process
+
+                    case_output_lines: list[str] = []
+                    if process.stdout is not None:
+                        for line in process.stdout:
+                            case_output_lines.append(line.rstrip("\n"))
+                            fp.write(line)
+                            fp.flush()
+                    case_exit_code = process.wait()
+                    case_duration = time.monotonic() - case_started_at
+
+                    report_cmd = [
+                        airtest_bin(),
+                        "report",
+                        str(current_case),
+                        "--log_root",
+                        str(case_output_dir),
+                        "--outfile",
+                        str(case_report_file),
+                        "--lang",
+                        "zh",
+                    ]
+                    report_completed = subprocess.run(
+                        report_cmd,
+                        cwd=str(project_root),
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="ignore",
+                        env=env,
+                    )
+                    if report_completed.stdout:
+                        fp.write(report_completed.stdout)
+                    if report_completed.stderr:
+                        fp.write(report_completed.stderr)
+                    fp.flush()
+
+                    screenshot = find_first_artifact(case_output_dir, (".png", ".jpg", ".jpeg"))
+                    video = find_first_artifact(case_output_dir, (".mp4", ".mov", ".avi"))
+                    screenshot_rel = screenshot.relative_to(project_root).as_posix() if screenshot and screenshot.is_relative_to(project_root) else ""
+                    video_rel = video.relative_to(project_root).as_posix() if video and video.is_relative_to(project_root) else ""
+                    report_rel = case_report_file.relative_to(project_root).as_posix() if case_report_file.is_relative_to(project_root) else ""
+                    error_message = ""
+                    if case_exit_code != 0:
+                        overall_failed = True
+                        tail = "\n".join(case_output_lines[-20:])
+                        error_message = tail or f"Airtest exit code: {case_exit_code}"
+                    elif report_completed.returncode != 0:
+                        error_message = (report_completed.stderr or report_completed.stdout or "").strip()
+
+                    run_results.append(
+                        {
+                            "case_index": index,
+                            "node_id": case_key,
+                            "name": current_case.stem,
+                            "status": "passed" if case_exit_code == 0 else "failed",
+                            "duration": round(case_duration, 3),
+                            "app": app_key or "airtest",
+                            "screenshot": screenshot_rel,
+                            "video": video_rel,
+                            "error_message": error_message,
+                            "case_report_path": report_rel,
+                        }
+                    )
+                    write_task_results(
+                        task_id,
+                        run_results,
+                        task_results,
+                        session_start=session_start,
+                        session_end=datetime.now().isoformat(timespec="seconds"),
+                    )
+                    write_task_html_report(
+                        task_id,
+                        run_results,
+                        task_report,
+                        report_path_mapper=lambda value: value,
+                        session_start=session_start,
+                        session_end=datetime.now().isoformat(timespec="seconds"),
+                    )
+                    _sync_if_report_changed()
+
+                exit_code = 1 if overall_failed else 0
         except Exception as exc:
             with runtime.lock:
                 info = runtime.tasks.get(task_id)
@@ -261,11 +377,7 @@ def run_tests(
 
         post_errors: list[str] = []
         try:
-            report_ok = task_report.exists()
-            if not report_ok:
-                from report_generator import generate_report
-
-                report_ok = generate_report(task_results, task_report)
+            report_ok = task_report.exists() and task_results.exists()
             report_ok, current_sync_errors = _sync_task_report_artifacts(
                 task_id=task_id,
                 task_results=task_results,
@@ -274,7 +386,7 @@ def run_tests(
                 report_html_file=report_html_file,
                 save_task_report_to_db=save_task_report_to_db,
             )
-            allure_output = (
+            report_output = (
                 f"HTML report generated: {safe_display_path(task_report)}"
                 if report_ok
                 else "HTML report generate failed"
@@ -283,21 +395,21 @@ def run_tests(
             post_errors.extend(current_sync_errors)
         except Exception as exc:
             report_ok = False
-            allure_output = "report post-process failed"
+            report_output = "report post-process failed"
             post_errors.append(str(exc))
 
-        allure_code = 0 if report_ok else 1
+        report_exit_code = 0 if report_ok else 1
         deduped_errors = list(dict.fromkeys(post_errors))
         if deduped_errors:
-            allure_output = f"{allure_output}; {'; '.join(deduped_errors)}"
+            report_output = f"{report_output}; {'; '.join(deduped_errors)}"
 
         with runtime.lock:
             info = runtime.tasks.get(task_id)
             was_stopped = bool(info is not None and info.get("status") == "stopped")
             if info is not None:
-                info["pytest_exit_code"] = exit_code
-                info["allure_exit_code"] = allure_code
-                info["allure_output"] = allure_output
+                info["run_exit_code"] = exit_code
+                info["report_exit_code"] = report_exit_code
+                info["report_output"] = report_output
                 if not was_stopped:
                     info["status"] = "success" if exit_code == 0 else "failed"
             runtime.device_running_task.pop(device, None)
@@ -314,10 +426,10 @@ def run_tests(
         update_task_history(
             task_id=task_id,
             status=final_task_status,
-            pytest_exit_code=exit_code,
-            allure_exit_code=allure_code,
+            run_exit_code=exit_code,
+            report_exit_code=report_exit_code,
             error=update_error,
-            allure_output=allure_output,
+            report_output=report_output,
         )
         set_device_status(device, final_status, task_id=task_id, message=final_msg)
 
@@ -343,9 +455,9 @@ def task_status(
                 "task_id": task_id,
                 "device": info.get("device"),
                 "status": info.get("status"),
-                "pytest_exit_code": info.get("pytest_exit_code"),
-                "allure_exit_code": info.get("allure_exit_code"),
-                "allure_output": info.get("allure_output"),
+                "run_exit_code": info.get("run_exit_code"),
+                "report_exit_code": info.get("report_exit_code"),
+                "report_output": info.get("report_output"),
                 "error": info.get("error"),
                 "has_report": has_report,
                 "report_url": task_report_url(task_id) if has_report else None,
@@ -362,9 +474,9 @@ def task_status(
                 "task_id": task_id,
                 "device": record.get("device_serial"),
                 "status": record.get("status"),
-                "pytest_exit_code": record.get("pytest_exit_code"),
-                "allure_exit_code": record.get("allure_exit_code"),
-                "allure_output": record.get("allure_output") or "",
+                "run_exit_code": record.get("run_exit_code"),
+                "report_exit_code": record.get("report_exit_code"),
+                "report_output": record.get("report_output") or "",
                 "error": record.get("error"),
                 "has_report": has_report,
                 "report_url": task_report_url(task_id) if has_report else None,
@@ -372,9 +484,9 @@ def task_status(
             }
             log_path = Path(str(record.get("log_path") or ""))
     try:
-        payload["pytest_output"] = _read_log_tail(log_path)
+        payload["log_output"] = _read_log_tail(log_path)
     except Exception:
-        payload["pytest_output"] = ""
+        payload["log_output"] = ""
     return payload
 
 
@@ -423,4 +535,3 @@ def stop_task(
     update_task_history(task_id=task_id, status="stopped", error="任务被手动停止")
     set_device_status(dev, "idle", task_id=task_id, message="任务已停止")
     return {"ok": True, "task_id": task_id, "status": "stopped"}
-
