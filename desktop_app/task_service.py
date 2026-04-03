@@ -20,6 +20,8 @@ from .airtest_service import find_first_artifact
 from .airtest_service import resolve_airtest_cases
 from .airtest_service import write_task_html_report
 from .airtest_service import write_task_results
+from .report_service import airtest_report_asset_root
+from .report_service import report_asset_url
 
 
 @dataclass
@@ -151,6 +153,8 @@ def run_tests(
     env["AIRTEST_CASE_ROOT"] = str(case_root)
     env["TEST_RESULTS_FILE"] = str(task_results)
     env["TEST_REPORT_FILE"] = str(task_report)
+    report_asset_root = airtest_report_asset_root()
+    static_root_url = report_asset_url(f"{report_asset_root.as_posix()}/") if report_asset_root is not None else None
 
     task_info = {
         "task_id": task_id,
@@ -300,6 +304,7 @@ def run_tests(
                         str(case_output_dir),
                         "--outfile",
                         str(case_report_file),
+                        *(["--static_root", static_root_url] if static_root_url else []),
                         "--lang",
                         "zh",
                     ]

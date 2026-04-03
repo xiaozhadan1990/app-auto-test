@@ -32,6 +32,8 @@ from .remote_ws_service import start_remote_ws_if_needed as start_remote_ws_if_n
 from .report_service import get_task_report_data as get_task_report_data_impl
 from .report_service import fetch_remote_report_asset as fetch_remote_report_asset_impl
 from .report_service import resolve_report_asset_path as resolve_report_asset_path_impl
+from .report_service import rewrite_report_css_asset_urls as rewrite_report_css_asset_urls_impl
+from .report_service import rewrite_report_html_asset_urls as rewrite_report_html_asset_urls_impl
 from .report_service import save_task_report_to_db as save_task_report_to_db_impl
 from .report_service import task_has_report as task_has_report_impl
 from .report_service import task_has_report_data as task_has_report_data_impl
@@ -140,6 +142,12 @@ class DesktopServiceContainer:
 
     def fetch_remote_report_asset(self, asset_url: str) -> tuple[bytes, str] | None:
         return fetch_remote_report_asset_impl(asset_url, env_int=self.env_int)
+
+    def rewrite_report_html_asset_urls(self, html: str, report_file: Path) -> str:
+        return rewrite_report_html_asset_urls_impl(html, report_file=report_file)
+
+    def rewrite_report_css_asset_urls(self, css: str, css_file: Path) -> str:
+        return rewrite_report_css_asset_urls_impl(css, css_file=css_file)
 
     def task_has_report(self, task_id: str) -> bool:
         return task_has_report_impl(task_id, task_report_dir=self.task_report_dir)
@@ -452,6 +460,8 @@ class DesktopServiceContainer:
             get_task_report_data=self.get_task_report_data,
             resolve_report_asset_path=self.resolve_report_asset_path,
             fetch_remote_report_asset=self.fetch_remote_report_asset,
+            rewrite_report_html_asset_urls=self.rewrite_report_html_asset_urls,
+            rewrite_report_css_asset_urls=self.rewrite_report_css_asset_urls,
             stop_task=self.stop_task,
             get_device_status=self.get_device_status,
             open_report=self.open_report,

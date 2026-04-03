@@ -23,6 +23,8 @@ class ApiDeps:
     get_task_report_data: Callable[..., dict[str, Any] | None]
     resolve_report_asset_path: Callable[[str], Path | None]
     fetch_remote_report_asset: Callable[[str], tuple[bytes, str] | None]
+    rewrite_report_html_asset_urls: Callable[[str, Path], str]
+    rewrite_report_css_asset_urls: Callable[[str, Path], str]
     stop_task: Callable[[dict[str, Any]], dict[str, Any]]
     get_device_status: Callable[[str], dict[str, Any]]
     open_report: Callable[[], dict[str, Any]]
@@ -32,6 +34,17 @@ class ApiDeps:
 
 
 def register_routes(app: Flask, deps: ApiDeps) -> None:
+    def _serve_report_like_asset(target: Path) -> Any:
+        if target.suffix.lower() in {".html", ".htm"}:
+            content = target.read_text(encoding="utf-8", errors="ignore")
+            rewritten = deps.rewrite_report_html_asset_urls(content, target)
+            return Response(rewritten, mimetype="text/html")
+        if target.suffix.lower() == ".css":
+            content = target.read_text(encoding="utf-8", errors="ignore")
+            rewritten = deps.rewrite_report_css_asset_urls(content, target)
+            return Response(rewritten, mimetype="text/css")
+        return send_file(target)
+
     @app.get("/")
     def index() -> Any:
         return send_file(deps.ui_html_file)
@@ -39,6 +52,20 @@ def register_routes(app: Flask, deps: ApiDeps) -> None:
     @app.get("/assets/<path:filename>")
     def ui_assets(filename: str) -> Any:
         return send_from_directory(deps.ui_assets_dir, filename)
+
+    @app.get("/Library/<path:filename>")
+    def api_absolute_library_asset(filename: str) -> Any:
+        target = deps.resolve_report_asset_path(f"/Library/{filename}")
+        if target is None:
+            return jsonify({"ok": False, "error": f"file not found or path is invalid: /Library/{filename}"}), 404
+        return _serve_report_like_asset(target)
+
+    @app.get("/Users/<path:filename>")
+    def api_absolute_users_asset(filename: str) -> Any:
+        target = deps.resolve_report_asset_path(f"/Users/{filename}")
+        if target is None:
+            return jsonify({"ok": False, "error": f"file not found or path is invalid: /Users/{filename}"}), 404
+        return _serve_report_like_asset(target)
 
     @app.post("/api/list_devices")
     def api_list_devices() -> Any:
@@ -142,7 +169,7 @@ def register_routes(app: Flask, deps: ApiDeps) -> None:
         target = deps.resolve_report_asset_path(rel_path)
         if target is None:
             return jsonify({"ok": False, "error": f"file not found or path is invalid: {rel_path}"}), 404
-        return send_file(target)
+        return _serve_report_like_asset(target)
 
     @app.post("/api/stop_task")
     def api_stop_task() -> Any:

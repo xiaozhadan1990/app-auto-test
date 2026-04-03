@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import mimetypes
 import os
+import re
+import shutil
+import subprocess
 import urllib.parse
 import urllib.request
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
@@ -27,6 +32,29 @@ def report_asset_url(rel_path: str | None) -> str | None:
     if not value:
         return None
     return f"/api/report_asset?path={urllib.parse.quote(value)}"
+
+
+_HTML_ASSET_ATTR_RE = re.compile(r"""(?P<attr>\b(?:href|src)\s*=\s*)(?P<quote>["'])(?P<value>[^"']+)(?P=quote)""")
+_CSS_URL_RE = re.compile(r"""url\((?P<quote>["']?)(?P<value>[^)"']+)(?P=quote)\)""")
+_JSON_ASSET_VALUE_RE = re.compile(
+    r"""(?P<prefix>"(?:static_root|src|thumbnail|log)"\s*:\s*)(?P<quote>["'])(?P<value>[^"']+)(?P=quote)"""
+)
+_REPORT_ASSET_SUFFIXES = {
+    ".css",
+    ".gif",
+    ".htm",
+    ".html",
+    ".jpg",
+    ".jpeg",
+    ".js",
+    ".json",
+    ".log",
+    ".mp4",
+    ".png",
+    ".svg",
+    ".txt",
+    ".webm",
+}
 
 
 def _remote_report_upload_url() -> str:
@@ -63,6 +91,68 @@ def fetch_remote_report_asset(
         return None
 
 
+@lru_cache(maxsize=1)
+def _airtest_report_asset_root() -> Path | None:
+    try:
+        spec = importlib.util.find_spec("airtest.report")
+    except (ImportError, ModuleNotFoundError):
+        spec = None
+    if spec is not None:
+        origin = getattr(spec, "origin", None)
+        if origin:
+            return Path(origin).resolve().parent
+
+    airtest_cmd = shutil.which("airtest")
+    if not airtest_cmd:
+        return None
+
+    try:
+        lines = Path(airtest_cmd).read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return None
+    if not lines:
+        return None
+
+    first_line = lines[0].strip()
+    if not first_line.startswith("#!"):
+        return None
+    python_bin = first_line[2:].strip()
+    if not python_bin:
+        return None
+
+    try:
+        completed = subprocess.run(
+            [
+                python_bin,
+                "-c",
+                "from pathlib import Path; import airtest.report; print(Path(airtest.report.__file__).resolve().parent)",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=10,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+
+    output = (completed.stdout or "").strip()
+    if not output:
+        return None
+    candidate = Path(output).expanduser()
+    if not candidate.exists():
+        return None
+    return candidate.resolve()
+
+
+def airtest_report_asset_root() -> Path | None:
+    """返回 Airtest 报告静态资源根目录。"""
+    return _airtest_report_asset_root()
+
+
 def resolve_report_asset_path(
     rel_path: str,
     *,
@@ -78,6 +168,20 @@ def resolve_report_asset_path(
     if value.startswith(("http://", "https://")):
         return None
     allowed_roots = [reports_root.resolve(), (resource_root / "reports").resolve()]
+    airtest_asset_root = _airtest_report_asset_root()
+    if airtest_asset_root is not None:
+        allowed_roots.append(airtest_asset_root)
+
+    candidate_path = Path(value).expanduser()
+    if candidate_path.is_absolute():
+        try:
+            resolved_candidate = candidate_path.resolve()
+            if any(resolved_candidate.is_relative_to(base) for base in allowed_roots):
+                if resolved_candidate.exists():
+                    return resolved_candidate
+        except Exception:
+            return None
+
     candidate_roots = [runtime_root.resolve(), resource_root.resolve(), project_root.resolve()]
     for root in candidate_roots:
         candidate = (root / value).resolve()
@@ -88,6 +192,86 @@ def resolve_report_asset_path(
         except Exception:
             continue
     return None
+
+
+def _rewrite_report_asset_reference(raw_value: str, *, base_dir: Path) -> str | None:
+    value = raw_value.strip()
+    if not value:
+        return None
+    if value.startswith(("http://", "https://", "data:", "#", "javascript:", "/api/report_asset?")):
+        return None
+
+    airtest_asset_root = _airtest_report_asset_root()
+    candidate = Path(value).expanduser()
+
+    if candidate.is_absolute():
+        try:
+            resolved_candidate = candidate.resolve()
+        except Exception:
+            return None
+
+        if airtest_asset_root is not None:
+            try:
+                if resolved_candidate.is_relative_to(airtest_asset_root):
+                    resolved_value = str(resolved_candidate)
+                    if value.endswith("/"):
+                        resolved_value = resolved_value.rstrip("/") + "/"
+                    return report_asset_url(resolved_value)
+            except Exception:
+                pass
+
+        try:
+            resolved_base = base_dir.resolve()
+            if resolved_candidate.is_relative_to(resolved_base) and resolved_candidate.suffix.lower() in _REPORT_ASSET_SUFFIXES:
+                return report_asset_url(str(resolved_candidate))
+        except Exception:
+            return None
+        return None
+
+    try:
+        resolved_candidate = (base_dir / value).resolve()
+    except Exception:
+        return None
+    if resolved_candidate.suffix.lower() not in _REPORT_ASSET_SUFFIXES:
+        return None
+    if not resolved_candidate.exists():
+        return None
+    return report_asset_url(str(resolved_candidate))
+
+
+def rewrite_report_html_asset_urls(html: str, *, report_file: Path) -> str:
+    """将 Airtest HTML 报告中的本地资源引用改写为 report_asset API 地址。"""
+    report_dir = report_file.resolve().parent
+
+    def _replace(match: re.Match[str]) -> str:
+        rewritten = _rewrite_report_asset_reference(match.group("value"), base_dir=report_dir)
+        if not rewritten:
+            return match.group(0)
+        return f'{match.group("attr")}{match.group("quote")}{rewritten}{match.group("quote")}'
+
+    rewritten_html = _HTML_ASSET_ATTR_RE.sub(_replace, html)
+
+    def _replace_json_asset_value(match: re.Match[str]) -> str:
+        rewritten = _rewrite_report_asset_reference(match.group("value"), base_dir=report_dir)
+        if not rewritten:
+            return match.group(0)
+        return f'{match.group("prefix")}{match.group("quote")}{rewritten}{match.group("quote")}'
+
+    return _JSON_ASSET_VALUE_RE.sub(_replace_json_asset_value, rewritten_html)
+
+
+def rewrite_report_css_asset_urls(css: str, *, css_file: Path) -> str:
+    """将 Airtest CSS 中的相对资源引用改写为 report_asset API 地址。"""
+    css_dir = css_file.resolve().parent
+
+    def _replace(match: re.Match[str]) -> str:
+        rewritten = _rewrite_report_asset_reference(match.group("value"), base_dir=css_dir)
+        if not rewritten:
+            return match.group(0)
+        quote = match.group("quote") or ""
+        return f"url({quote}{rewritten}{quote})"
+
+    return _CSS_URL_RE.sub(_replace, css)
 
 
 def _upload_report_asset(
