@@ -37,7 +37,7 @@ def report_asset_url(rel_path: str | None) -> str | None:
 _HTML_ASSET_ATTR_RE = re.compile(r"""(?P<attr>\b(?:href|src)\s*=\s*)(?P<quote>["'])(?P<value>[^"']+)(?P=quote)""")
 _CSS_URL_RE = re.compile(r"""url\((?P<quote>["']?)(?P<value>[^)"']+)(?P=quote)\)""")
 _JSON_ASSET_VALUE_RE = re.compile(
-    r"""(?P<prefix>"(?:static_root|src|thumbnail|log)"\s*:\s*)(?P<quote>["'])(?P<value>[^"']+)(?P=quote)"""
+    r"""(?P<prefix>"(?:static_root|src|thumbnail|log|image)"\s*:\s*)(?P<quote>["'])(?P<value>[^"']+)(?P=quote)"""
 )
 _REPORT_ASSET_SUFFIXES = {
     ".css",
@@ -55,6 +55,46 @@ _REPORT_ASSET_SUFFIXES = {
     ".txt",
     ".webm",
 }
+
+
+def _looks_like_airtest_report_asset(path: Path) -> bool:
+    parts = [part.lower() for part in path.parts]
+    for idx in range(len(parts) - 2):
+        if parts[idx] in {"site-packages", "dist-packages"} and parts[idx + 1] == "airtest" and parts[idx + 2] == "report":
+            return True
+    return False
+
+
+def _is_windows_drive_path(value: str) -> bool:
+    return bool(re.match(r"^/[A-Za-z]:/", value))
+
+
+def _normalize_windows_drive_path(value: str) -> str:
+    normalized = value
+    if _is_windows_drive_path(normalized):
+        normalized = normalized[1:]
+    return normalized.replace("/", "\\")
+
+
+def _path_from_asset_reference(value: str) -> Path:
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme.lower() != "file":
+        if os.name == "nt" and _is_windows_drive_path(value):
+            return Path(_normalize_windows_drive_path(value))
+        return Path(value).expanduser()
+
+    raw_path = urllib.parse.unquote(parsed.path or "")
+    raw_netloc = urllib.parse.unquote(parsed.netloc or "")
+    if os.name == "nt":
+        if raw_netloc and raw_path:
+            return Path(f"\\\\{raw_netloc}{raw_path.replace('/', '\\')}")
+        if _is_windows_drive_path(raw_path):
+            return Path(_normalize_windows_drive_path(raw_path))
+        return Path(raw_path.replace("/", "\\"))
+
+    if raw_netloc:
+        raw_path = f"/{raw_netloc}{raw_path}"
+    return Path(raw_path)
 
 
 def _remote_report_upload_url() -> str:
@@ -187,13 +227,18 @@ def resolve_report_asset_path(
     if airtest_case_root is not None:
         allowed_roots.append(airtest_case_root)
 
-    candidate_path = Path(value).expanduser()
+    try:
+        candidate_path = _path_from_asset_reference(value)
+    except Exception:
+        return None
     if candidate_path.is_absolute():
         try:
             resolved_candidate = candidate_path.resolve()
             if any(resolved_candidate.is_relative_to(base) for base in allowed_roots):
                 if resolved_candidate.exists():
                     return resolved_candidate
+            if resolved_candidate.exists() and _looks_like_airtest_report_asset(resolved_candidate):
+                return resolved_candidate
         except Exception:
             return None
 
@@ -218,7 +263,17 @@ def _rewrite_report_asset_reference(raw_value: str, *, base_dir: Path) -> str | 
 
     airtest_asset_root = _airtest_report_asset_root()
     airtest_case_root = _airtest_case_asset_root()
-    candidate = Path(value).expanduser()
+    decoded_value = value
+    if "\\\\" in value or "\\u" in value:
+        try:
+            decoded_value = json.loads(f'"{value}"')
+        except Exception:
+            decoded_value = value
+
+    try:
+        candidate = _path_from_asset_reference(decoded_value)
+    except Exception:
+        return None
 
     if candidate.is_absolute():
         try:
@@ -249,6 +304,9 @@ def _rewrite_report_asset_reference(raw_value: str, *, base_dir: Path) -> str | 
                 return report_asset_url(str(resolved_candidate))
         except Exception:
             return None
+
+        if resolved_candidate.exists() and _looks_like_airtest_report_asset(resolved_candidate):
+            return report_asset_url(str(resolved_candidate))
         return None
 
     try:
@@ -275,9 +333,15 @@ def rewrite_report_html_asset_urls(html: str, *, report_file: Path) -> str:
     rewritten_html = _HTML_ASSET_ATTR_RE.sub(_replace, html)
 
     def _replace_json_asset_value(match: re.Match[str]) -> str:
-        rewritten = _rewrite_report_asset_reference(match.group("value"), base_dir=report_dir)
+        original_value = match.group("value")
+        rewritten = _rewrite_report_asset_reference(original_value, base_dir=report_dir)
         if not rewritten:
+            if '"static_root"' in match.group("prefix") and original_value.startswith("/api/report_asset?") and not original_value.endswith("/"):
+                return f'{match.group("prefix")}{match.group("quote")}{original_value}/{match.group("quote")}'
             return match.group(0)
+        # Airtest report.js 拼接 static_root + "image/xxx"，这里确保 static_root 末尾有 "/"。
+        if '"static_root"' in match.group("prefix") and not rewritten.endswith("/"):
+            rewritten = f"{rewritten}/"
         return f'{match.group("prefix")}{match.group("quote")}{rewritten}{match.group("quote")}'
 
     return _JSON_ASSET_VALUE_RE.sub(_replace_json_asset_value, rewritten_html)

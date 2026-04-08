@@ -22,6 +22,7 @@ from .airtest_service import write_task_html_report
 from .airtest_service import write_task_results
 from .report_service import airtest_report_asset_root
 from .report_service import report_asset_url
+from .report_service import rewrite_report_html_asset_urls
 
 
 @dataclass
@@ -322,6 +323,15 @@ def run_tests(
                         fp.write(report_completed.stdout)
                     if report_completed.stderr:
                         fp.write(report_completed.stderr)
+                    if report_completed.returncode == 0 and case_report_file.exists():
+                        try:
+                            rewritten = rewrite_report_html_asset_urls(
+                                case_report_file.read_text(encoding="utf-8", errors="ignore"),
+                                report_file=case_report_file,
+                            )
+                            case_report_file.write_text(rewritten, encoding="utf-8")
+                        except Exception as rewrite_exc:
+                            fp.write(f"[airtest] rewrite case report asset urls failed: {rewrite_exc}\n")
                     fp.flush()
 
                     screenshot = find_first_artifact(case_output_dir, (".png", ".jpg", ".jpeg"))
