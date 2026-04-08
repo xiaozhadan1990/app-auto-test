@@ -291,6 +291,13 @@ class DesktopServiceContainer:
     def remote_ws_exec_command(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
         if action == "list_devices":
             return self.list_devices()
+        if action == "get_app_options":
+            apps = [
+                {"key": key, "label": conf.get("label", key)}
+                for key, conf in self.app_config.items()
+                if str(conf.get("hidden") or "").lower() not in {"1", "true", "yes"}
+            ]
+            return {"ok": True, "apps": apps}
         if action == "list_test_packages":
             app_key = str(payload.get("app_key") or "lysora")
             device_platform = str(payload.get("device_platform") or "").strip().lower() or None
