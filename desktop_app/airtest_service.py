@@ -9,7 +9,11 @@ from typing import Callable
 from typing import Any
 
 
-DEFAULT_AIRTEST_CASE_ROOT = Path("/Users/ruijie/Documents/workspace/airProject/海外用例_wln")
+DEFAULT_AIRTEST_CASE_ROOT = (
+    Path(r"D:\workspace\airtestProject\海外用例_wln")
+    if os.name == "nt"
+    else Path("/Users/ruijie/Documents/workspace/airProject/海外用例_wln")
+)
 
 
 def airtest_case_root() -> Path:

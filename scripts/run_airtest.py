@@ -6,12 +6,13 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from desktop_app.airtest_service import DEFAULT_AIRTEST_CASE_ROOT
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from desktop_app.airtest_service import DEFAULT_AIRTEST_CASE_ROOT
+
 
 
 DEFAULT_CASE_ROOT = DEFAULT_AIRTEST_CASE_ROOT
