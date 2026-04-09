@@ -1,5 +1,7 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import base64
+import mimetypes
 import os
 import shutil
 import socket
@@ -309,15 +311,68 @@ class DesktopServiceContainer:
         if action == "task_status":
             task_id = str(payload.get("task_id") or "").strip()
             if not task_id:
-                return {"ok": False, "error": "task_id 不能为空"}
+                return {"ok": False, "error": "task_id 涓嶈兘涓虹┖"}
             return self.task_status(task_id)
-        if action == "task_report_data":
+        if action == "get_task_log":
             task_id = str(payload.get("task_id") or "").strip()
             if not task_id:
                 return {"ok": False, "error": "task_id 不能为空"}
+            record = self.get_task_record(task_id)
+            if not record:
+                return {"ok": False, "error": f"task not found: {task_id}"}
+            log_path = Path(str(record.get("log_path") or ""))
+            if not log_path.exists():
+                return {"ok": False, "error": f"log file not found: {log_path}"}
+            try:
+                content = log_path.read_text(encoding="utf-8", errors="ignore")
+            except Exception as exc:
+                return {"ok": False, "error": f"read log failed: {exc}"}
+            return {
+                "ok": True,
+                "task_id": task_id,
+                "filename": f"{task_id}.log",
+                "content": content,
+            }
+        if action == "get_report_asset":
+            asset_path = str(payload.get("path") or "").strip()
+            if not asset_path:
+                return {"ok": False, "error": "path 不能为空"}
+            if asset_path.startswith(("http://", "https://")):
+                remote_asset = self.fetch_remote_report_asset(asset_path)
+                if remote_asset is None:
+                    return {"ok": False, "error": f"failed to fetch remote asset: {asset_path}"}
+                body, content_type = remote_asset
+            else:
+                target = self.resolve_report_asset_path(asset_path)
+                if target is None:
+                    return {"ok": False, "error": f"file not found or path is invalid: {asset_path}"}
+                suffix = target.suffix.lower()
+                if suffix in {".html", ".htm"}:
+                    content = target.read_text(encoding="utf-8", errors="ignore")
+                    rewritten = self.rewrite_report_html_asset_urls(content, target)
+                    body = rewritten.encode("utf-8")
+                    content_type = "text/html; charset=utf-8"
+                elif suffix == ".css":
+                    content = target.read_text(encoding="utf-8", errors="ignore")
+                    rewritten = self.rewrite_report_css_asset_urls(content, target)
+                    body = rewritten.encode("utf-8")
+                    content_type = "text/css; charset=utf-8"
+                else:
+                    body = target.read_bytes()
+                    content_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+            return {
+                "ok": True,
+                "path": asset_path,
+                "content_type": content_type,
+                "content_base64": base64.b64encode(body).decode("ascii"),
+            }
+        if action == "task_report_data":
+            task_id = str(payload.get("task_id") or "").strip()
+            if not task_id:
+                return {"ok": False, "error": "task_id 涓嶈兘涓虹┖"}
             data = self.get_task_report_data(task_id)
             if not data:
-                return {"ok": False, "error": f"任务报告数据不存在: {task_id}"}
+                return {"ok": False, "error": f"浠诲姟鎶ュ憡鏁版嵁涓嶅瓨鍦? {task_id}"}
             return {"ok": True, "task_id": task_id, **data}
         if action == "task_history":
             limit_raw = payload.get("limit", 20)
@@ -333,7 +388,7 @@ class DesktopServiceContainer:
         if action == "device_status":
             device = str(payload.get("device_serial") or "").strip()
             if not device:
-                return {"ok": False, "error": "device_serial 不能为空"}
+                return {"ok": False, "error": "device_serial 涓嶈兘涓虹┖"}
             return {"ok": True, "device_status": self.get_device_status(device)}
         if action == "startup_info":
             return self.startup_info()
@@ -435,7 +490,7 @@ class DesktopServiceContainer:
             from report_generator import generate_report
 
             if not generate_report(self.test_results_file, self.report_html_file):
-                return {"ok": False, "error": "暂无报告，且生成失败"}
+                return {"ok": False, "error": "鏆傛棤鎶ュ憡锛屼笖鐢熸垚澶辫触"}
         try:
             os.startfile(str(self.report_html_file))  # type: ignore[attr-defined]
             return {"ok": True}
@@ -476,3 +531,6 @@ class DesktopServiceContainer:
             remote_ws_status=self.remote_ws_status,
             read_remote_ws_log_lines=self.read_remote_ws_log_lines,
         )
+
+
+
