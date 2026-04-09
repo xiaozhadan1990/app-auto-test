@@ -10,9 +10,9 @@ from typing import Any
 
 
 DEFAULT_AIRTEST_CASE_ROOT = (
-    Path(r"D:\workspace\airtestProject\海外用例_wln")
+    Path(r"D:\workspace\airtestProject\自动化测试")
     if os.name == "nt"
-    else Path("/Users/ruijie/Documents/workspace/airProject/海外用例_wln")
+    else Path("/Users/ruijie/Documents/workspace/airProject/自动化测试")
 )
 
 
@@ -27,11 +27,79 @@ def airtest_bin() -> str:
     return (os.getenv("AIRTEST_BIN") or "airtest").strip() or "airtest"
 
 
-def discover_airtest_cases(case_root: Path | None = None) -> list[Path]:
+_PREFERRED_SCRIPT_DIR_ORDER = ("海外app", "国内app", "白牌app")
+
+
+def _contains_common_segment(path: Path, root: Path) -> bool:
+    try:
+        rel_parts = path.resolve().relative_to(root.resolve()).parts
+    except Exception:
+        rel_parts = path.parts
+    for part in rel_parts:
+        normalized = part.strip().lower()
+        if normalized == "common":
+            return True
+        if Path(normalized).stem == "common":
+            return True
+    return False
+
+
+def _safe_subdir(root: Path, subdir: str | None) -> Path | None:
+    value = (subdir or "").strip()
+    if not value:
+        return root
+    candidate = (root / value).resolve()
+    try:
+        candidate.relative_to(root)
+    except Exception:
+        return None
+    if not candidate.exists() or not candidate.is_dir():
+        return None
+    return candidate
+
+
+def discover_airtest_cases(
+    case_root: Path | None = None,
+    *,
+    script_dir: str | None = None,
+    exclude_common: bool = False,
+) -> list[Path]:
     root = (case_root or airtest_case_root()).resolve()
     if not root.exists():
         return []
-    return sorted(path for path in root.rglob("*.air") if path.is_dir())
+    scan_root = _safe_subdir(root, script_dir)
+    if scan_root is None:
+        return []
+    discovered = sorted(path for path in scan_root.rglob("*.air") if path.is_dir())
+    if not exclude_common:
+        return discovered
+    return [path for path in discovered if not _contains_common_segment(path, root)]
+
+
+def list_airtest_script_dirs(case_root: Path | None = None) -> list[dict[str, str]]:
+    root = (case_root or airtest_case_root()).resolve()
+    if not root.exists() or not root.is_dir():
+        return []
+    discovered = discover_airtest_cases(root, exclude_common=True)
+    top_dirs: set[str] = set()
+    for case_path in discovered:
+        rel_parts = case_path.relative_to(root).parts
+        if not rel_parts:
+            continue
+        name = rel_parts[0].strip()
+        if name and name.lower() != "common":
+            top_dirs.add(name)
+    if not top_dirs:
+        return []
+
+    def _sort_key(name: str) -> tuple[int, str]:
+        try:
+            return (_PREFERRED_SCRIPT_DIR_ORDER.index(name), name)
+        except ValueError:
+            return (len(_PREFERRED_SCRIPT_DIR_ORDER), name)
+
+    ordered = sorted(top_dirs, key=_sort_key)
+    return [{"key": name, "label": f"{name} Airtest 脚本集"} for name in ordered]
 
 
 def case_id(case_path: Path, case_root: Path | None = None) -> str:
@@ -84,10 +152,15 @@ def resolve_airtest_cases(selected_cases: list[str], case_root: Path | None = No
     return deduped
 
 
-def list_airtest_packages(case_root: Path | None = None) -> list[dict[str, str | int]]:
+def list_airtest_packages(
+    case_root: Path | None = None,
+    *,
+    script_dir: str | None = None,
+    exclude_common: bool = True,
+) -> list[dict[str, str | int]]:
     root = (case_root or airtest_case_root()).resolve()
     packages: list[dict[str, str | int]] = []
-    for path in discover_airtest_cases(root):
+    for path in discover_airtest_cases(root, script_dir=script_dir, exclude_common=exclude_common):
         rel_id = case_id(path, root)
         label = path.stem.strip() or rel_id
         packages.append(

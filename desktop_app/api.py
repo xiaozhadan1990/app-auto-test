@@ -13,6 +13,7 @@ class ApiDeps:
     ui_assets_dir: Path
     remote_ws_log_file: Path
     app_config: dict[str, dict[str, str]]
+    list_script_directories: Callable[[], list[dict[str, str]]]
     list_devices: Callable[[], dict[str, Any]]
     list_test_packages: Callable[[str, str | None], list[dict[str, Any]]]
     run_tests: Callable[[dict[str, Any]], dict[str, Any]]
@@ -34,6 +35,18 @@ class ApiDeps:
 
 
 def register_routes(app: Flask, deps: ApiDeps) -> None:
+    def _is_common_script_path(value: str) -> bool:
+        raw = str(value or "").strip().replace("\\", "/")
+        if not raw:
+            return False
+        parts = [item.strip().lower() for item in raw.split("/") if item.strip()]
+        for part in parts:
+            if part == "common":
+                return True
+            if Path(part).stem == "common":
+                return True
+        return False
+
     def _serve_report_like_asset(target: Path) -> Any:
         if target.suffix.lower() in {".html", ".htm"}:
             content = target.read_text(encoding="utf-8", errors="ignore")
@@ -73,11 +86,13 @@ def register_routes(app: Flask, deps: ApiDeps) -> None:
 
     @app.get("/api/get_app_options")
     def api_get_app_options() -> Any:
-        apps = [
-            {"key": k, "label": v["label"]}
-            for k, v in deps.app_config.items()
-            if str(v.get("hidden") or "").lower() not in {"1", "true", "yes"}
-        ]
+        apps = deps.list_script_directories()
+        if not apps:
+            apps = [
+                {"key": k, "label": v["label"]}
+                for k, v in deps.app_config.items()
+                if str(v.get("hidden") or "").lower() not in {"1", "true", "yes"}
+            ]
         return jsonify(apps)
 
     @app.post("/api/list_test_packages")
@@ -86,6 +101,11 @@ def register_routes(app: Flask, deps: ApiDeps) -> None:
         app_key = payload.get("app_key") or "airtest"
         device_platform = (payload.get("device_platform") or "").strip().lower() or None
         packages = deps.list_test_packages(app_key, device_platform)
+        packages = [
+            item
+            for item in packages
+            if not _is_common_script_path(str(item.get("value", "")))
+        ]
         return jsonify(
             {
                 "ok": True,

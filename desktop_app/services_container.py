@@ -23,6 +23,7 @@ from .db_service import insert_task_history as insert_task_history_impl
 from .db_service import set_device_status as set_device_status_impl
 from .db_service import update_task_history as update_task_history_impl
 from .device_service import list_devices as list_devices_impl
+from .package_service import list_script_directories as list_script_directories_impl
 from .package_service import list_test_packages as list_test_packages_impl
 from .remote_ws_service import RemoteWsDeps
 from .remote_ws_service import RemoteWsRuntime
@@ -294,11 +295,13 @@ class DesktopServiceContainer:
         if action == "list_devices":
             return self.list_devices()
         if action == "get_app_options":
-            apps = [
-                {"key": key, "label": conf.get("label", key)}
-                for key, conf in self.app_config.items()
-                if str(conf.get("hidden") or "").lower() not in {"1", "true", "yes"}
-            ]
+            apps = self.list_script_directories()
+            if not apps:
+                apps = [
+                    {"key": key, "label": conf.get("label", key)}
+                    for key, conf in self.app_config.items()
+                    if str(conf.get("hidden") or "").lower() not in {"1", "true", "yes"}
+                ]
             return {"ok": True, "apps": apps}
         if action == "list_test_packages":
             app_key = str(payload.get("app_key") or "lysora")
@@ -422,6 +425,9 @@ class DesktopServiceContainer:
     def list_test_packages(self, app_key: str, device_platform: str | None = None) -> list[dict[str, Any]]:
         return list_test_packages_impl(app_key, self.app_config, self.project_root, device_platform)
 
+    def list_script_directories(self) -> list[dict[str, str]]:
+        return list_script_directories_impl()
+
     def startup_info(self) -> dict[str, Any]:
         cache_key = f"startup_info:{self.adb_bin}"
         cached = self._get_probe_cache(cache_key, ttl_sec=15.0)
@@ -512,6 +518,7 @@ class DesktopServiceContainer:
             ui_assets_dir=self.resource_root / "ui" / "assets",
             remote_ws_log_file=self.remote_ws_log_file,
             app_config=self.app_config,
+            list_script_directories=self.list_script_directories,
             list_devices=self.list_devices,
             list_test_packages=self.list_test_packages,
             run_tests=self.run_tests,
